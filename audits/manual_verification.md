@@ -2,13 +2,13 @@
 
 ## Dataset checks
 - Source URL: https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv
-- Local file: data/raw/brent-daily.csv
+- Local file: data\raw\brent-daily.csv
 - SHA256: b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d
 - Rows: 9947
 - Date range: 1987-05-20 to 2026-08-03
 
 ## Model checks
-- Trained at: 2026-08-10T08:07:18+00:00
+- Trained at: 2026-08-10T18:12:39+00:00
 - Training samples: 7948
 - Test samples: 1988
 - Test MAE: 1.40788
