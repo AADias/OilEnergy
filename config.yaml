@@ -1,0 +1,98 @@
+{
+  "defaults": {
+    "correlation_threshold": 0.7,
+    "external_fill_method": "forward_fill"
+  },
+  "commodities": {
+    "brent": {
+      "display_name": "Brent Crude Oil",
+      "source_type": "public_csv",
+      "source_url": "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv",
+      "local_filename": "brent-daily.csv",
+      "date_column": "Date",
+      "price_column": "Price",
+      "date_formats": [
+        "%Y-%m-%d"
+      ],
+      "missing_values": [
+        "",
+        "."
+      ],
+      "feature_set": [
+        "core_price_history",
+        "seasonality"
+      ],
+      "model_hyperparameters": {
+        "alpha": 1.0
+      }
+    },
+    "wti": {
+      "display_name": "WTI Crude Oil",
+      "source_type": "public_csv",
+      "source_url": "https://raw.githubusercontent.com/marti-1/financial_crashes/master/data/DCOILWTICO.csv",
+      "local_filename": "wti-daily.csv",
+      "date_column": "DATE",
+      "price_column": "DCOILWTICO",
+      "date_formats": [
+        "%Y-%m-%d",
+        "%d/%m/%Y"
+      ],
+      "missing_values": [
+        "",
+        "."
+      ],
+      "feature_set": [
+        "core_price_history",
+        "seasonality"
+      ],
+      "model_hyperparameters": {
+        "alpha": 1.0
+      }
+    },
+    "henry_hub": {
+      "display_name": "Henry Hub Natural Gas",
+      "source_type": "public_csv",
+      "source_url": "https://raw.githubusercontent.com/Speerfish/US-Economic-Data/master/Henry%20Hub%20Natural%20Gas%20Spot%20Price/DHHNGSP.csv",
+      "local_filename": "henry-hub-daily.csv",
+      "date_column": "DATE",
+      "price_column": "DHHNGSP",
+      "date_formats": [
+        "%Y-%m-%d"
+      ],
+      "missing_values": [
+        "",
+        "."
+      ],
+      "feature_set": [
+        "core_price_history",
+        "seasonality"
+      ],
+      "model_hyperparameters": {
+        "alpha": 1.0
+      }
+    },
+    "qatar_lng": {
+      "display_name": "Qatar LNG (Asia LNG proxy)",
+      "source_type": "public_csv",
+      "source_url": "https://raw.githubusercontent.com/mikejrob/hawaii-lng-lsfo-brief/main/fred_pngasjpusdm_lng_japan.csv",
+      "local_filename": "qatar-lng-monthly.csv",
+      "date_column": "observation_date",
+      "price_column": "PNGASJPUSDM",
+      "date_formats": [
+        "%Y-%m-%d"
+      ],
+      "missing_values": [
+        "",
+        "."
+      ],
+      "feature_set": [
+        "core_price_history",
+        "seasonality"
+      ],
+      "model_hyperparameters": {
+        "alpha": 1.0
+      },
+      "proxy_note": "Free Qatar LNG spot prices are not published consistently, so this configuration uses the IMF/FRED Asia LNG benchmark as a public proxy for Qatar LNG exports."
+    }
+  }
+}
