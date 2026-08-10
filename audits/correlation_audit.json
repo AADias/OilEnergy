@@ -1,0 +1,189 @@
+{
+  "correlation_matrix": [
+    {
+      "from": "henry_hub",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "brent",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "brent",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "brent",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "brent",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "brent",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "opec_basket",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "opec_basket",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "opec_basket",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "opec_basket",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "opec_basket",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    }
+  ],
+  "threshold_used": 0.5,
+  "notes": "Pearson correlation on price levels. High correlation means the two series move together and may improve prediction when used as cross-features. All correlations should be verified against economic reasoning.",
+  "significant_partners_for_target": [
+    "wti",
+    "henry_hub",
+    "qatar_lng",
+    "opec_basket"
+  ],
+  "correlation_errors": [],
+  "external_feature_load_errors": []
+}

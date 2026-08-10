@@ -1,0 +1,98 @@
+# OilEnergy Commodity Configuration
+# ===================================
+# Add or modify commodities here without touching core code.
+# Each commodity entry defines how to fetch and process price data.
+#
+# Fields:
+#   name:        Human-readable display name
+#   type:        "oil" or "gas"
+#   region:      Geographic focus (e.g., "middle_east", "global", "us")
+#   fred_series: FRED series ID (preferred - free, reliable, no auth required)
+#   yahoo_ticker: Yahoo Finance ticker (fallback)
+#   csv_url:     Direct CSV download URL (fallback for legacy datasets)
+#   price_column: Column name in CSV that holds the price (default: "Price")
+#   date_column:  Column name in CSV that holds the date (default: "Date")
+#   description: Short description of the commodity
+#   primary_source: Which source to try first ("fred", "yahoo", "csv")
+
+commodities:
+
+  brent:
+    name: "Brent Crude Oil"
+    type: oil
+    region: global
+    primary_source: csv
+    csv_url: "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv"
+    fred_series: "DCOILBRENTEU"
+    yahoo_ticker: "BZ=F"
+    price_column: "Price"
+    date_column: "Date"
+    description: >
+      Brent crude oil — the global benchmark for approximately two-thirds of world
+      oil trade. Produced in the North Sea; widely used as a reference price for
+      Middle East exports.
+
+  wti:
+    name: "WTI Crude Oil"
+    type: oil
+    region: us
+    primary_source: fred
+    fred_series: "DCOILWTICO"
+    yahoo_ticker: "CL=F"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      West Texas Intermediate crude oil — the US benchmark for oil pricing.
+      Highly correlated with Brent; useful as a cross-commodity feature.
+
+  henry_hub:
+    name: "Henry Hub Natural Gas"
+    type: gas
+    region: us
+    primary_source: fred
+    fred_series: "DHHNGSP"
+    yahoo_ticker: "NG=F"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      Henry Hub spot price for natural gas in the United States. Used as a
+      global gas price proxy and directional indicator for LNG markets,
+      including Qatar LNG.
+
+  qatar_lng:
+    name: "Qatar LNG (Henry Hub Proxy)"
+    type: gas
+    region: middle_east
+    primary_source: fred
+    fred_series: "DHHNGSP"
+    yahoo_ticker: "NG=F"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      Qatar is the world's largest LNG exporter. Official QP pricing data is
+      not publicly available in machine-readable form. Henry Hub is used as a
+      directional proxy for global LNG price trends. For production purposes,
+      replace this with your contracted QP pricing data.
+    notes: >
+      Data lineage: Henry Hub (FRED DHHNGSP) is used as a proxy for Qatar LNG
+      pricing. Qatar LNG contracts are typically indexed to crude oil (JCC)
+      or regional benchmarks; the correlation with Henry Hub is moderate but
+      directionally informative. For official Qatar energy statistics see:
+      https://www.qatarenergy.qa and https://www.opec.org/opec_web/en/data_graphs/40.htm
+
+  opec_basket:
+    name: "OPEC Reference Basket"
+    type: oil
+    region: middle_east
+    primary_source: fred
+    fred_series: "DCOILBRENTEU"
+    yahoo_ticker: "BZ=F"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      The OPEC Reference Basket is an average of prices for petroleum blends
+      produced by OPEC member countries. It historically trades close to Brent.
+      Qatar (QatarMarine crude) is one component. Brent is used as a proxy
+      when official OPEC basket data is unavailable.
+    notes: >
+      For official OPEC basket prices: https://www.opec.org/opec_web/en/data_graphs/40.htm
