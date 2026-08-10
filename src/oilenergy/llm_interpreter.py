@@ -117,7 +117,7 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     lines = [
         f"Forecast Summary — {commodity}",
         "",
-        f"Based on current market data, {commodity} is showing a {direction} trend. "
+        f"Based on current market data, {commodity} is showing {'an' if direction == 'upward' else 'a'} {direction} trend. "
         f"The model forecasts the next trading session price at {pred_price} "
         f"(current observation: {obs_price}).",
         "",

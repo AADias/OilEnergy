@@ -1,11 +1,11 @@
 {
   "commodity_key": "brent",
   "commodity_name": "Brent Crude Oil",
-  "source_url": "data\\raw\\brent.csv",
+  "source_url": "data/raw/brent.csv",
   "source_type": "cache",
   "data_lineage": "datasets/oil-prices GitHub repository (original source: EIA/ICE)",
-  "loaded_from_cache": "data\\raw\\brent.csv",
-  "loaded_at": "2026-08-10T18:39:21+00:00",
+  "loaded_from_cache": "data/raw/brent.csv",
+  "loaded_at": "2026-08-10T19:16:15+00:00",
   "row_count": 9947,
   "date_range": {
     "start": "1987-05-20",

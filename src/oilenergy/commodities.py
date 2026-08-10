@@ -96,6 +96,27 @@ COMMODITIES: dict[str, dict[str, Any]] = {
             "Official OPEC basket: https://www.opec.org/opec_web/en/data_graphs/40.htm"
         ),
     },
+    # Phase 2 addition
+    "dubai_crude": {
+        "name": "Dubai Crude (Oman/Dubai Benchmark)",
+        "type": "oil",
+        "region": "middle_east",
+        "primary_source": "fred",
+        "fred_series": "POILDUBUSDM",
+        "price_column": "value",
+        "date_column": "date",
+        "description": (
+            "Dubai/Oman crude — the primary pricing benchmark for Middle East sour "
+            "crude sold into Asia. Used by QatarEnergy, Saudi Aramco, and ADNOC for "
+            "Asian contract pricing. Monthly resolution (IMF/FRED POILDUBUSDM)."
+        ),
+        "data_lineage": (
+            "FRED series POILDUBUSDM — IMF Primary Commodity Prices, Dubai Fateh "
+            "(monthly average, USD/barrel). "
+            "For daily data see DME Oman crude futures (OQD). "
+            "Official source: https://www.imf.org/en/Research/commodity-prices"
+        ),
+    },
 }
 
 
