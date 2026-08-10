@@ -1,0 +1,53 @@
+{
+  "merge_event": "squash_merge",
+  "pr_number": 4,
+  "pr_title": "Phase 1: Multi-commodity pipeline with Qatar/Middle East focus & HuggingFace LLM interpretation",
+  "source_branch": "copilot/qatar-middle-east-forecasting-pipeline",
+  "source_sha": "b8e7ab7cd0a8d8de61e90246047f7d3af0f8e28b",
+  "target_branch": "main",
+  "squash_commit": "59777e0",
+  "merged_at": "2026-08-10T11:11:00Z",
+  "conflict_resolved": {
+    "file": ".env.example",
+    "resolution": "kept PR branch version (more descriptive comments, placeholder token)"
+  },
+  "files_added": [
+    "audits/correlation_audit.json",
+    "config/commodities.yaml",
+    "data/raw/brent.csv",
+    "docs/MIDDLE_EAST_FOCUS.md",
+    "src/oilenergy/commodities.py",
+    "src/oilenergy/correlation_analysis.py",
+    "src/oilenergy/external_features.py",
+    "src/oilenergy/llm_interpreter.py"
+  ],
+  "files_modified": [
+    ".env.example",
+    ".gitignore",
+    "README.md",
+    "artifacts/model.json",
+    "artifacts/test_predictions.csv",
+    "audits/data_audit.json",
+    "audits/manual_verification.md",
+    "audits/model_audit.json",
+    "scripts/train_model.py",
+    "src/oilenergy/__init__.py",
+    "src/oilenergy/pipeline.py"
+  ],
+  "phase1_features": [
+    "Multi-commodity support: Brent, WTI, Henry Hub, Qatar LNG proxy, OPEC Basket",
+    "HuggingFace LLM interpretation (facebook/bart-large-cnn) with template fallback",
+    "Seasonality features: month, quarter, day-of-week, heating/cooling season",
+    "Correlation analysis: pairwise Pearson across commodity series",
+    "External commodity features: lag-1 and rolling-mean-3",
+    "Modular config: config/commodities.yaml",
+    "argparse CLI for train_model.py",
+    "Backwards-compatible: no-arg invocation unchanged"
+  ],
+  "manual_verification": {
+    "instructions": "Run: set PYTHONPATH=src && python scripts/train_model.py",
+    "expected_output_includes": ["Dataset rows:", "Test MAE:", "AI Interpretation"],
+    "multi_commodity_test": "python scripts/train_model.py --commodity qatar_lng --features seasonality",
+    "list_commodities": "python scripts/train_model.py --list-commodities"
+  }
+}
