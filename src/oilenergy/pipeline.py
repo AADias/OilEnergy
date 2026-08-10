@@ -53,7 +53,7 @@ def sha256_for_bytes(content: bytes) -> str:
 
 def download_dataset(url: str, destination: Path) -> dict[str, Any]:
     ensure_directory(destination.parent)
-    with urlopen(url) as response:
+    with urlopen(url, timeout=30) as response:
         content = response.read()
     destination.write_bytes(content)
     return {
@@ -267,6 +267,9 @@ def write_json(path: Path, content: dict[str, Any] | list[dict[str, Any]]) -> No
 
 def write_predictions_csv(path: Path, predictions: list[dict[str, Any]]) -> None:
     ensure_directory(path.parent)
+    if not predictions:
+        path.write_text("", encoding="utf-8")
+        return
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(predictions[0].keys()))
         writer.writeheader()
