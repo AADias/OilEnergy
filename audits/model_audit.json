@@ -1,0 +1,39 @@
+{
+  "trained_at": "2026-08-10T08:03:15+00:00",
+  "feature_names": [
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "lag_5",
+    "lag_10",
+    "mean_5",
+    "mean_10",
+    "momentum_5",
+    "volatility_5"
+  ],
+  "coefficients": {
+    "intercept": 0.026652,
+    "lag_1": -0.042361,
+    "lag_2": -0.009791,
+    "lag_3": 0.010252,
+    "lag_5": 1.002689,
+    "lag_10": -0.019946,
+    "mean_5": -0.008544,
+    "mean_10": 0.066877,
+    "momentum_5": 1.027197,
+    "volatility_5": 0.026078
+  },
+  "train_sample_count": 7948,
+  "test_sample_count": 1988,
+  "test_metrics": {
+    "mae": 1.40788,
+    "rmse": 2.152758,
+    "directional_accuracy": 0.511066
+  },
+  "latest_prediction": {
+    "latest_observation_date": "2026-08-03",
+    "latest_observation_price": 88.9,
+    "predicted_next_price": 88.7696,
+    "predicted_direction_up": false
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "source_url": "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv",
+  "local_dataset_path": "/home/runner/work/OilEnergy/OilEnergy/data/raw/brent-daily.csv",
+  "downloaded_at": "2026-08-10T08:03:15+00:00",
+  "sha256": "b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d",
+  "byte_count": 178488,
+  "row_count": 9947,
+  "date_range": {
+    "start": "1987-05-20",
+    "end": "2026-08-03"
+  },
+  "price_summary": {
+    "minimum": 9.1,
+    "maximum": 143.95,
+    "average": 51.3576
+  },
+  "head": [
+    {
+      "date": "1987-05-20",
+      "price": 18.63
+    },
+    {
+      "date": "1987-05-21",
+      "price": 18.45
+    },
+    {
+      "date": "1987-05-22",
+      "price": 18.55
+    }
+  ],
+  "tail": [
+    {
+      "date": "2026-07-30",
+      "price": 91.91
+    },
+    {
+      "date": "2026-07-31",
+      "price": 96.95
+    },
+    {
+      "date": "2026-08-03",
+      "price": 88.9
+    }
+  ]
+}
