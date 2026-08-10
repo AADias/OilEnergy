@@ -212,24 +212,24 @@ def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, flo
 
 
 def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, Any]:
-    recent_rows = rows[-10:]
-    current_price = recent_rows[-1].price
-    window_5 = [row.price for row in recent_rows[-5:]][::-1]
-    window_10 = [row.price for row in recent_rows][::-1]
+    current_index = len(rows) - 1
+    current_price = rows[current_index].price
+    window_5 = [rows[current_index - offset].price for offset in range(0, 5)]
+    window_10 = [rows[current_index - offset].price for offset in range(0, 10)]
     features = [
-        recent_rows[-2].price,
-        recent_rows[-3].price,
-        recent_rows[-4].price,
-        recent_rows[-6].price,
-        recent_rows[-10].price,
+        rows[current_index - 1].price,
+        rows[current_index - 2].price,
+        rows[current_index - 3].price,
+        rows[current_index - 5].price,
+        rows[current_index - 10].price,
         rolling_mean(window_5),
         rolling_mean(window_10),
-        current_price - recent_rows[-6].price,
+        current_price - rows[current_index - 5].price,
         rolling_std(window_5),
     ]
     predicted_price = predict(weights, features)
     return {
-        "latest_observation_date": recent_rows[-1].date,
+        "latest_observation_date": rows[current_index].date,
         "latest_observation_price": round_float(current_price, 4),
         "predicted_next_price": round_float(predicted_price, 4),
         "predicted_direction_up": bool(predicted_price >= current_price),
@@ -240,7 +240,7 @@ def data_audit(rows: list[PriceRow], dataset_path: Path, source_url: str, downlo
     prices = [row.price for row in rows]
     return {
         "source_url": source_url,
-        "local_dataset_path": str(dataset_path),
+        "local_dataset_path": str(dataset_path.relative_to(dataset_path.parents[2])),
         **download_metadata,
         "row_count": len(rows),
         "date_range": {"start": rows[0].date, "end": rows[-1].date},
@@ -346,4 +346,3 @@ def run_pipeline(project_root: Path) -> dict[str, Any]:
         "dataset_audit": dataset_audit_content,
         "model_audit": model_audit_content,
     }
-

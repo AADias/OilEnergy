@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-08-10T08:03:15+00:00",
+  "trained_at": "2026-08-10T08:04:15+00:00",
   "feature_names": [
     "lag_1",
     "lag_2",
@@ -33,7 +33,7 @@
   "latest_prediction": {
     "latest_observation_date": "2026-08-03",
     "latest_observation_price": 88.9,
-    "predicted_next_price": 88.7696,
-    "predicted_direction_up": false
+    "predicted_next_price": 88.9064,
+    "predicted_direction_up": true
   }
 }

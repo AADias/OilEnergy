@@ -2,13 +2,13 @@
 
 ## Dataset checks
 - Source URL: https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv
-- Local file: /home/runner/work/OilEnergy/OilEnergy/data/raw/brent-daily.csv
+- Local file: data/raw/brent-daily.csv
 - SHA256: b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d
 - Rows: 9947
 - Date range: 1987-05-20 to 2026-08-03
 
 ## Model checks
-- Trained at: 2026-08-10T08:03:15+00:00
+- Trained at: 2026-08-10T08:04:15+00:00
 - Training samples: 7948
 - Test samples: 1988
 - Test MAE: 1.40788
@@ -18,8 +18,8 @@
 ## Latest model output
 - Latest observation date: 2026-08-03
 - Latest observation price: 88.9
-- Predicted next price: 88.7696
-- Predicted direction up: False
+- Predicted next price: 88.9064
+- Predicted direction up: True
 
 ## Manual verification steps
 - Open the raw CSV and confirm the first and last rows match the data audit JSON.
