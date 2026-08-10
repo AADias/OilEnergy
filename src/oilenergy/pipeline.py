@@ -81,10 +81,12 @@ def rolling_mean(values: list[float]) -> float:
 def rolling_std(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
+    # Population volatility is intentional here because the feature window is the full observation window used for prediction.
     return statistics.pstdev(values)
 
 
 def build_features(rows: list[PriceRow], index: int) -> list[float]:
+    # These features intentionally include the current observation because the model predicts the next trading day's price.
     window_5 = [rows[index - offset].price for offset in range(0, 5)]
     window_10 = [rows[index - offset].price for offset in range(0, 10)]
     current_price = rows[index].price
