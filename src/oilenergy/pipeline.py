@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import math
 import statistics
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.request import urlopen
 
-DATASET_URL = "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv"
+from .commodities import PriceRow, download_dataset, get_commodity_definition, load_config, load_rows, utc_now
+from .external_features import build_external_feature_lookup
+
 FEATURE_NAMES = [
     "lag_1",
     "lag_2",
@@ -22,13 +22,11 @@ FEATURE_NAMES = [
     "mean_10",
     "momentum_5",
     "volatility_5",
+    "month_of_year",
+    "quarter",
+    "day_of_week",
+    "is_weekend_or_holiday",
 ]
-
-
-@dataclass
-class PriceRow:
-    date: str
-    price: float
 
 
 @dataclass
@@ -39,37 +37,49 @@ class Sample:
     features: list[float]
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+def parse_iso_date(value: str) -> date:
+    return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def ensure_directory(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
+def nth_weekday_of_month(year: int, month: int, weekday: int, occurrence: int) -> date:
+    current_day = date(year, month, 1)
+    while current_day.weekday() != weekday:
+        current_day += timedelta(days=1)
+    current_day += timedelta(days=(occurrence - 1) * 7)
+    return current_day
 
 
-def sha256_for_bytes(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
+def observed_fixed_holiday(year: int, month: int, day_of_month: int) -> date:
+    holiday = date(year, month, day_of_month)
+    if holiday.weekday() == 5:
+        return holiday - timedelta(days=1)
+    if holiday.weekday() == 6:
+        return holiday + timedelta(days=1)
+    return holiday
 
 
-def download_dataset(url: str, destination: Path) -> dict[str, Any]:
-    ensure_directory(destination.parent)
-    with urlopen(url, timeout=30) as response:
-        content = response.read()
-    destination.write_bytes(content)
-    return {
-        "downloaded_at": utc_now(),
-        "sha256": sha256_for_bytes(content),
-        "byte_count": len(content),
+def is_weekend_or_holiday(observation_date: date) -> bool:
+    # Keep this deliberately small and transparent: weekends plus a few widely-recognized US holidays.
+    # Users who need market-specific holiday calendars can layer them in as custom event features later.
+    holidays = {
+        observed_fixed_holiday(observation_date.year - 1, 1, 1),
+        observed_fixed_holiday(observation_date.year, 1, 1),
+        observed_fixed_holiday(observation_date.year + 1, 1, 1),
+        observed_fixed_holiday(observation_date.year, 7, 4),
+        observed_fixed_holiday(observation_date.year, 12, 25),
+        nth_weekday_of_month(observation_date.year, 11, weekday=3, occurrence=4),
     }
+    return observation_date.weekday() >= 5 or observation_date in holidays
 
 
-def load_rows(csv_path: Path) -> list[PriceRow]:
-    rows: list[PriceRow] = []
-    with csv_path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            rows.append(PriceRow(date=row["Date"], price=float(row["Price"])))
-    return rows
+def seasonal_features(observation_date: str) -> list[float]:
+    parsed_date = parse_iso_date(observation_date)
+    return [
+        float(parsed_date.month),
+        float(((parsed_date.month - 1) // 3) + 1),
+        float(parsed_date.weekday()),
+        float(is_weekend_or_holiday(parsed_date)),
+    ]
 
 
 def rolling_mean(values: list[float]) -> float:
@@ -81,16 +91,14 @@ def rolling_mean(values: list[float]) -> float:
 def rolling_std(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
-    # Population volatility is intentional here because the feature window is the full observation window used for prediction.
     return statistics.pstdev(values)
 
 
-def build_features(rows: list[PriceRow], index: int) -> list[float]:
-    # These features intentionally include the current observation because the model predicts the next trading day's price.
+def build_features(rows: list[PriceRow], index: int, external_feature_values: list[float] | None = None) -> list[float]:
     window_5 = [rows[index - offset].price for offset in range(0, 5)]
     window_10 = [rows[index - offset].price for offset in range(0, 10)]
     current_price = rows[index].price
-    return [
+    feature_values = [
         rows[index - 1].price,
         rows[index - 2].price,
         rows[index - 3].price,
@@ -100,19 +108,28 @@ def build_features(rows: list[PriceRow], index: int) -> list[float]:
         rolling_mean(window_10),
         current_price - rows[index - 5].price,
         rolling_std(window_5),
+        *seasonal_features(rows[index].date),
     ]
+    if external_feature_values is not None:
+        feature_values.extend(external_feature_values)
+    return feature_values
 
 
-def build_samples(rows: list[PriceRow]) -> list[Sample]:
+def build_samples(rows: list[PriceRow], external_feature_lookup: dict[str, list[float]] | None = None) -> list[Sample]:
     samples: list[Sample] = []
     for index in range(10, len(rows) - 1):
         current_price = rows[index].price
+        external_feature_values = None
+        if external_feature_lookup is not None:
+            external_feature_values = external_feature_lookup.get(rows[index].date)
+            if external_feature_values is None:
+                raise KeyError(f"Missing external features for {rows[index].date}.")
         samples.append(
             Sample(
                 date=rows[index].date,
                 current_price=current_price,
                 target_price=rows[index + 1].price,
-                features=build_features(rows, index),
+                features=build_features(rows, index, external_feature_values),
             )
         )
     return samples
@@ -169,7 +186,6 @@ def fit_ridge_regression(train_samples: list[Sample], alpha: float = 1.0) -> lis
     target_vector = matrix_vector_multiply(design_matrix_t, targets)
 
     for row_index in range(1, len(gram_matrix)):
-        # Keep the intercept unregularized while applying ridge shrinkage to feature weights.
         gram_matrix[row_index][row_index] += alpha
 
     return solve_linear_system(gram_matrix, target_vector)
@@ -218,10 +234,19 @@ def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, flo
     return metrics, predictions
 
 
-def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, Any]:
+def latest_prediction(
+    weights: list[float],
+    rows: list[PriceRow],
+    external_feature_lookup: dict[str, list[float]] | None = None,
+) -> dict[str, Any]:
     current_index = len(rows) - 1
     current_price = rows[current_index].price
-    features = build_features(rows, current_index)
+    external_feature_values = None
+    if external_feature_lookup is not None:
+        external_feature_values = external_feature_lookup.get(rows[current_index].date)
+        if external_feature_values is None:
+            raise KeyError(f"Missing external features for {rows[current_index].date}.")
+    features = build_features(rows, current_index, external_feature_values)
     predicted_price = predict(weights, features)
     return {
         "latest_observation_date": rows[current_index].date,
@@ -231,16 +256,31 @@ def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, A
     }
 
 
+def significant_features(feature_names: list[str], weights: list[float], top_n: int = 5) -> list[dict[str, float | str]]:
+    significant = [
+        {"feature": feature_name, "coefficient": round_float(weight), "absolute_weight": round_float(abs(weight))}
+        for feature_name, weight in zip(feature_names, weights[1:])
+    ]
+    significant.sort(key=lambda item: item["absolute_weight"], reverse=True)
+    return significant[:top_n]
+
+
 def data_audit(
     rows: list[PriceRow],
     dataset_path: Path,
     project_root: Path,
-    source_url: str,
+    commodity_name: str,
+    commodity_definition: Any,
     download_metadata: dict[str, Any],
+    external_dataset_audits: list[dict[str, Any]],
+    external_alignment_start: str,
 ) -> dict[str, Any]:
     prices = [row.price for row in rows]
     return {
-        "source_url": source_url,
+        "commodity": commodity_name,
+        "commodity_display_name": commodity_definition.display_name,
+        "source_url": commodity_definition.source_url,
+        "proxy_note": commodity_definition.proxy_note,
         "local_dataset_path": str(dataset_path.relative_to(project_root)),
         **download_metadata,
         "row_count": len(rows),
@@ -250,18 +290,20 @@ def data_audit(
             "maximum": round_float(max(prices), 4),
             "average": round_float(sum(prices) / len(prices), 4),
         },
+        "external_sources": external_dataset_audits,
+        "external_alignment_start": external_alignment_start,
         "head": [asdict(row) for row in rows[:3]],
         "tail": [asdict(row) for row in rows[-3:]],
     }
 
 
 def write_json(path: Path, content: dict[str, Any] | list[dict[str, Any]]) -> None:
-    ensure_directory(path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(content, indent=2), encoding="utf-8")
 
 
 def write_predictions_csv(path: Path, predictions: list[dict[str, Any]]) -> None:
-    ensure_directory(path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not predictions:
         path.write_text("", encoding="utf-8")
         return
@@ -277,11 +319,12 @@ def write_manual_audit(
     model_audit_content: dict[str, Any],
     prediction_summary: dict[str, Any],
 ) -> None:
-    ensure_directory(path.parent)
+    external_feature_list = model_audit_content["external_features"]
     lines = [
         "# Manual Verification Audit",
         "",
         "## Dataset checks",
+        f"- Commodity: {dataset_audit_content['commodity_display_name']} ({dataset_audit_content['commodity']})",
         f"- Source URL: {dataset_audit_content['source_url']}",
         f"- Local file: {dataset_audit_content['local_dataset_path']}",
         f"- SHA256: {dataset_audit_content['sha256']}",
@@ -290,11 +333,18 @@ def write_manual_audit(
         "",
         "## Model checks",
         f"- Trained at: {model_audit_content['trained_at']}",
+        f"- External feature commodities: {', '.join(external_feature_list) if external_feature_list else 'None'}",
         f"- Training samples: {model_audit_content['train_sample_count']}",
         f"- Test samples: {model_audit_content['test_sample_count']}",
         f"- Test MAE: {model_audit_content['test_metrics']['mae']}",
         f"- Test RMSE: {model_audit_content['test_metrics']['rmse']}",
         f"- Directional accuracy: {model_audit_content['test_metrics']['directional_accuracy']}",
+        "",
+        "## Feature significance",
+        *[
+            f"- {feature['feature']}: coefficient={feature['coefficient']} abs_weight={feature['absolute_weight']}"
+            for feature in model_audit_content["significant_features"]
+        ],
         "",
         "## Latest model output",
         f"- Latest observation date: {prediction_summary['latest_observation_date']}",
@@ -305,35 +355,92 @@ def write_manual_audit(
         "## Manual verification steps",
         "- Open the raw CSV and confirm the first and last rows match the data audit JSON.",
         "- Recompute the SHA256 of the raw CSV and confirm it matches the recorded digest.",
+        "- If external features were enabled, spot-check one aligned commodity series in the raw CSV and confirm the fill method used in the audit.",
         "- Open the predictions CSV and confirm dates are in chronological order.",
         "- Spot-check that predicted_direction_up matches whether predicted_next_price is greater than or equal to current_price.",
-        "- Re-run `PYTHONPATH=src python3 scripts/train_model.py` and confirm the audit files refresh successfully.",
+        "- Re-run `python -m scripts.train_model` and confirm the audit files refresh successfully.",
     ]
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_pipeline(project_root: Path) -> dict[str, Any]:
-    dataset_path = project_root / "data" / "raw" / "brent-daily.csv"
+def run_pipeline(
+    project_root: Path,
+    commodity_name: str = "brent",
+    external_feature_commodities: list[str] | None = None,
+    fill_method: str | None = None,
+) -> dict[str, Any]:
+    config = load_config(project_root)
+    fill_method = fill_method or config["defaults"]["external_fill_method"]
+    commodity_definition = get_commodity_definition(project_root, commodity_name)
+    dataset_path = project_root / "data" / "raw" / commodity_definition.local_filename
     artifacts_dir = project_root / "artifacts"
     audits_dir = project_root / "audits"
 
-    download_metadata = download_dataset(DATASET_URL, dataset_path)
-    rows = load_rows(dataset_path)
-    samples = build_samples(rows)
+    download_metadata = download_dataset(commodity_definition.source_url, dataset_path)
+    rows = load_rows(dataset_path, commodity_definition)
+
+    external_feature_commodities = [
+        external_name for external_name in (external_feature_commodities or []) if external_name != commodity_name
+    ]
+    external_feature_lookup: dict[str, list[float]] | None = None
+    external_feature_names: list[str] = []
+    external_dataset_audits: list[dict[str, Any]] = []
+    external_alignment_start = ""
+    if external_feature_commodities:
+        external_feature_result = build_external_feature_lookup(
+            project_root,
+            [row.date for row in rows],
+            external_feature_commodities,
+            fill_method=fill_method,
+        )
+        external_alignment_start = external_feature_result["available_from"]
+        external_feature_lookup = external_feature_result["aligned_by_date"]
+        external_feature_names = external_feature_result["feature_names"]
+        external_dataset_audits = external_feature_result["dataset_audits"]
+        if external_alignment_start:
+            rows = [row for row in rows if row.date >= external_alignment_start]
+            external_feature_lookup = {
+                target_date: feature_values
+                for target_date, feature_values in external_feature_lookup.items()
+                if target_date >= external_alignment_start
+            }
+        for target_date, feature_values in external_feature_lookup.items():
+            if any(math.isnan(value) for value in feature_values):
+                raise ValueError(f"External feature alignment produced NaN values for {target_date}.")
+
+    samples = build_samples(rows, external_feature_lookup)
     train_samples, test_samples = split_samples(samples)
 
-    weights = fit_ridge_regression(train_samples, alpha=1.0)
+    alpha = commodity_definition.model_hyperparameters.get("alpha", 1.0)
+    weights = fit_ridge_regression(train_samples, alpha=alpha)
     test_metrics, predictions = evaluate(weights, test_samples)
-    prediction_summary = latest_prediction(weights, rows)
+    prediction_summary = latest_prediction(weights, rows, external_feature_lookup)
 
-    dataset_audit_content = data_audit(rows, dataset_path, project_root, DATASET_URL, download_metadata)
+    feature_names = FEATURE_NAMES + external_feature_names
+    dataset_audit_content = data_audit(
+        rows,
+        dataset_path,
+        project_root,
+        commodity_name,
+        commodity_definition,
+        download_metadata,
+        external_dataset_audits,
+        external_alignment_start,
+    )
     model_audit_content = {
         "trained_at": utc_now(),
-        "feature_names": FEATURE_NAMES,
+        "commodity": commodity_name,
+        "commodity_display_name": commodity_definition.display_name,
+        "feature_names": feature_names,
+        "external_features": external_feature_commodities,
+        "fill_method": fill_method,
+        "model_hyperparameters": {"alpha": alpha},
         "coefficients": {
             "intercept": round_float(weights[0]),
-            **{name: round_float(weight) for name, weight in zip(FEATURE_NAMES, weights[1:])},
+            **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
         },
+        "significant_features": significant_features(feature_names, weights),
         "train_sample_count": len(train_samples),
         "test_sample_count": len(test_samples),
         "test_metrics": test_metrics,

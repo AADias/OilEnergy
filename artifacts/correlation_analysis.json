@@ -1,0 +1,181 @@
+{
+  "target_commodity": "brent",
+  "comparison_commodities": [
+    "wti",
+    "henry_hub",
+    "qatar_lng"
+  ],
+  "fill_method": "forward_fill",
+  "correlation_threshold": 0.7,
+  "analysis_window": {
+    "start": "2003-06-01",
+    "end": "2022-08-08"
+  },
+  "dataset_audits": [
+    {
+      "commodity": "brent",
+      "display_name": "Brent Crude Oil",
+      "source_url": "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv",
+      "local_dataset_path": "data/raw/brent-daily.csv",
+      "row_count": 9947,
+      "date_range": {
+        "start": "1987-05-20",
+        "end": "2026-08-03"
+      },
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
+      "sha256": "b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d",
+      "byte_count": 178488
+    },
+    {
+      "commodity": "wti",
+      "display_name": "WTI Crude Oil",
+      "source_url": "https://raw.githubusercontent.com/marti-1/financial_crashes/master/data/DCOILWTICO.csv",
+      "local_dataset_path": "data/raw/wti-daily.csv",
+      "row_count": 9222,
+      "date_range": {
+        "start": "1986-01-02",
+        "end": "2022-08-08"
+      },
+      "fill_method": "forward_fill",
+      "proxy_note": "",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
+      "sha256": "6ae9a86262b251f281547f05fa28e40d611ff4256a6db7014a11c352a0c36763",
+      "byte_count": 161465
+    },
+    {
+      "commodity": "henry_hub",
+      "display_name": "Henry Hub Natural Gas",
+      "source_url": "https://raw.githubusercontent.com/Speerfish/US-Economic-Data/master/Henry%20Hub%20Natural%20Gas%20Spot%20Price/DHHNGSP.csv",
+      "local_dataset_path": "data/raw/henry-hub-daily.csv",
+      "row_count": 6974,
+      "date_range": {
+        "start": "1997-01-07",
+        "end": "2024-10-01"
+      },
+      "fill_method": "forward_fill",
+      "proxy_note": "",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
+      "sha256": "2007222efc756973052b07919f814a56e6ac0b8a5d311f1a86b012a2f4fb3a41",
+      "byte_count": 114985
+    },
+    {
+      "commodity": "qatar_lng",
+      "display_name": "Qatar LNG (Asia LNG proxy)",
+      "source_url": "https://raw.githubusercontent.com/mikejrob/hawaii-lng-lsfo-brief/main/fred_pngasjpusdm_lng_japan.csv",
+      "local_dataset_path": "data/raw/qatar-lng-monthly.csv",
+      "row_count": 272,
+      "date_range": {
+        "start": "2003-06-01",
+        "end": "2026-01-01"
+      },
+      "fill_method": "forward_fill",
+      "proxy_note": "Free Qatar LNG spot prices are not published consistently, so this configuration uses the IMF/FRED Asia LNG benchmark as a public proxy for Qatar LNG exports.",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
+      "sha256": "58785029c72867cd3d8edf96dd21635cae38302c04794fb4c4f2270e4c4c3026",
+      "byte_count": 6415
+    }
+  ],
+  "pearson_correlation": {
+    "brent": {
+      "brent": 1.0,
+      "wti": 0.974706,
+      "henry_hub": 0.142904,
+      "qatar_lng": 0.677719
+    },
+    "wti": {
+      "brent": 0.974706,
+      "wti": 1.0,
+      "henry_hub": 0.26825,
+      "qatar_lng": 0.64849
+    },
+    "henry_hub": {
+      "brent": 0.142904,
+      "wti": 0.26825,
+      "henry_hub": 1.0,
+      "qatar_lng": 0.048837
+    },
+    "qatar_lng": {
+      "brent": 0.677719,
+      "wti": 0.64849,
+      "henry_hub": 0.048837,
+      "qatar_lng": 1.0
+    }
+  },
+  "spearman_correlation": {
+    "brent": {
+      "brent": 1.0,
+      "wti": 0.97941,
+      "henry_hub": 0.171062,
+      "qatar_lng": 0.794798
+    },
+    "wti": {
+      "brent": 0.97941,
+      "wti": 1.0,
+      "henry_hub": 0.28131,
+      "qatar_lng": 0.781988
+    },
+    "henry_hub": {
+      "brent": 0.171062,
+      "wti": 0.28131,
+      "henry_hub": 1.0,
+      "qatar_lng": 0.101667
+    },
+    "qatar_lng": {
+      "brent": 0.794798,
+      "wti": 0.781988,
+      "henry_hub": 0.101667,
+      "qatar_lng": 1.0
+    }
+  },
+  "high_correlation_pairs": [
+    {
+      "left": "brent",
+      "right": "wti",
+      "pearson": 0.974706,
+      "spearman": 0.97941,
+      "strength": 0.97941
+    },
+    {
+      "left": "brent",
+      "right": "qatar_lng",
+      "pearson": 0.677719,
+      "spearman": 0.794798,
+      "strength": 0.794798
+    },
+    {
+      "left": "wti",
+      "right": "qatar_lng",
+      "pearson": 0.64849,
+      "spearman": 0.781988,
+      "strength": 0.781988
+    }
+  ],
+  "feature_recommendations": [
+    {
+      "commodity": "wti",
+      "include_as_feature": true,
+      "pearson": 0.974706,
+      "spearman": 0.97941,
+      "reason": "Strong monotonic or linear relationship to the target commodity."
+    },
+    {
+      "commodity": "qatar_lng",
+      "include_as_feature": true,
+      "pearson": 0.677719,
+      "spearman": 0.794798,
+      "reason": "Strong monotonic or linear relationship to the target commodity."
+    },
+    {
+      "commodity": "henry_hub",
+      "include_as_feature": false,
+      "pearson": 0.142904,
+      "spearman": 0.171062,
+      "reason": "Useful for experimentation, but below the default high-correlation threshold."
+    }
+  ],
+  "visualization_recommendations": [
+    "Use a heatmap for the Pearson matrix to spot tightly-linked commodities quickly.",
+    "Plot Brent versus WTI as a scatter chart because those markets are typically the strongest pair.",
+    "Overlay Qatar LNG proxy and Henry Hub on a normalized line chart to compare gas market divergence."
+  ]
+}
