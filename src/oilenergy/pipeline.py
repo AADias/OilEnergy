@@ -84,29 +84,33 @@ def rolling_std(values: list[float]) -> float:
     return statistics.pstdev(values)
 
 
+def build_features(rows: list[PriceRow], index: int) -> list[float]:
+    window_5 = [rows[index - offset].price for offset in range(0, 5)]
+    window_10 = [rows[index - offset].price for offset in range(0, 10)]
+    current_price = rows[index].price
+    return [
+        rows[index - 1].price,
+        rows[index - 2].price,
+        rows[index - 3].price,
+        rows[index - 5].price,
+        rows[index - 10].price,
+        rolling_mean(window_5),
+        rolling_mean(window_10),
+        current_price - rows[index - 5].price,
+        rolling_std(window_5),
+    ]
+
+
 def build_samples(rows: list[PriceRow]) -> list[Sample]:
     samples: list[Sample] = []
     for index in range(10, len(rows) - 1):
-        window_5 = [rows[index - offset].price for offset in range(0, 5)]
-        window_10 = [rows[index - offset].price for offset in range(0, 10)]
         current_price = rows[index].price
-        features = [
-            rows[index - 1].price,
-            rows[index - 2].price,
-            rows[index - 3].price,
-            rows[index - 5].price,
-            rows[index - 10].price,
-            rolling_mean(window_5),
-            rolling_mean(window_10),
-            current_price - rows[index - 5].price,
-            rolling_std(window_5),
-        ]
         samples.append(
             Sample(
                 date=rows[index].date,
                 current_price=current_price,
                 target_price=rows[index + 1].price,
-                features=features,
+                features=build_features(rows, index),
             )
         )
     return samples
@@ -163,6 +167,7 @@ def fit_ridge_regression(train_samples: list[Sample], alpha: float = 1.0) -> lis
     target_vector = matrix_vector_multiply(design_matrix_t, targets)
 
     for row_index in range(1, len(gram_matrix)):
+        # Keep the intercept unregularized while applying ridge shrinkage to feature weights.
         gram_matrix[row_index][row_index] += alpha
 
     return solve_linear_system(gram_matrix, target_vector)
@@ -214,19 +219,7 @@ def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, flo
 def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, Any]:
     current_index = len(rows) - 1
     current_price = rows[current_index].price
-    window_5 = [rows[current_index - offset].price for offset in range(0, 5)]
-    window_10 = [rows[current_index - offset].price for offset in range(0, 10)]
-    features = [
-        rows[current_index - 1].price,
-        rows[current_index - 2].price,
-        rows[current_index - 3].price,
-        rows[current_index - 5].price,
-        rows[current_index - 10].price,
-        rolling_mean(window_5),
-        rolling_mean(window_10),
-        current_price - rows[current_index - 5].price,
-        rolling_std(window_5),
-    ]
+    features = build_features(rows, current_index)
     predicted_price = predict(weights, features)
     return {
         "latest_observation_date": rows[current_index].date,

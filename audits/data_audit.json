@@ -1,7 +1,7 @@
 {
   "source_url": "https://raw.githubusercontent.com/datasets/oil-prices/main/data/brent-daily.csv",
   "local_dataset_path": "data/raw/brent-daily.csv",
-  "downloaded_at": "2026-08-10T08:05:44+00:00",
+  "downloaded_at": "2026-08-10T08:06:25+00:00",
   "sha256": "b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d",
   "byte_count": 178488,
   "row_count": 9947,
