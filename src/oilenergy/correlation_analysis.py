@@ -18,7 +18,7 @@ def pearson_correlation(left: list[float], right: list[float]) -> float:
         return 0.0
     left_mean = sum(left) / len(left)
     right_mean = sum(right) / len(right)
-    covariance = sum((l - left_mean) * (r - right_mean) for l, r in zip(left, right))
+    covariance = sum((left_value - left_mean) * (right_value - right_mean) for left_value, right_value in zip(left, right))
     left_variance = sum((value - left_mean) ** 2 for value in left)
     right_variance = sum((value - right_mean) ** 2 for value in right)
     denominator = math.sqrt(left_variance * right_variance)
@@ -137,9 +137,7 @@ def analyze_correlations(
     target_dataset_path = project_root / "data" / "raw" / target_definition.local_filename
     target_download_metadata = download_dataset(target_definition.source_url, target_dataset_path)
     target_rows = load_rows(target_dataset_path, target_definition)
-    target_dates = [row.date for row in target_rows]
-
-    series_by_name: dict[str, list[float]] = {target_commodity: [row.price for row in target_rows]}
+    comparison_rows: dict[str, tuple[Any, list[Any], Path, dict[str, Any]]] = {}
     dataset_audits = [
         {
             "commodity": target_commodity,
@@ -152,6 +150,8 @@ def analyze_correlations(
         }
     ]
 
+    common_start = target_rows[0].date
+    common_end = target_rows[-1].date
     for comparison_commodity in comparison_commodities:
         if comparison_commodity == target_commodity:
             continue
@@ -159,13 +159,9 @@ def analyze_correlations(
         dataset_path = project_root / "data" / "raw" / definition.local_filename
         download_metadata = download_dataset(definition.source_url, dataset_path)
         rows = load_rows(dataset_path, definition)
-        aligned_prices = align_price_series(
-            [row.date for row in rows],
-            [row.price for row in rows],
-            target_dates,
-            fill_method,
-        )
-        series_by_name[comparison_commodity] = aligned_prices
+        comparison_rows[comparison_commodity] = (definition, rows, dataset_path, download_metadata)
+        common_start = max(common_start, rows[0].date)
+        common_end = min(common_end, rows[-1].date)
         dataset_audits.append(
             {
                 "commodity": comparison_commodity,
@@ -180,6 +176,18 @@ def analyze_correlations(
             }
         )
 
+    filtered_target_rows = [row for row in target_rows if common_start <= row.date <= common_end]
+    target_dates = [row.date for row in filtered_target_rows]
+    series_by_name: dict[str, list[float]] = {target_commodity: [row.price for row in filtered_target_rows]}
+    for comparison_commodity, (_, rows, _, _) in comparison_rows.items():
+        aligned_prices = align_price_series(
+            [row.date for row in rows],
+            [row.price for row in rows],
+            target_dates,
+            fill_method,
+        )
+        series_by_name[comparison_commodity] = aligned_prices
+
     pearson_matrix = compute_correlation_matrix(series_by_name, method="pearson")
     spearman_matrix = compute_correlation_matrix(series_by_name, method="spearman")
     recommendations = feature_recommendations(target_commodity, pearson_matrix, spearman_matrix, threshold)
@@ -189,6 +197,7 @@ def analyze_correlations(
         "comparison_commodities": [name for name in series_by_name if name != target_commodity],
         "fill_method": fill_method,
         "correlation_threshold": threshold,
+        "analysis_window": {"start": common_start, "end": common_end},
         "dataset_audits": dataset_audits,
         "pearson_correlation": pearson_matrix,
         "spearman_correlation": spearman_matrix,

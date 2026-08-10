@@ -59,8 +59,12 @@ def observed_fixed_holiday(year: int, month: int, day_of_month: int) -> date:
 
 
 def is_weekend_or_holiday(observation_date: date) -> bool:
+    # Keep this deliberately small and transparent: weekends plus a few widely-recognized US holidays.
+    # Users who need market-specific holiday calendars can layer them in as custom event features later.
     holidays = {
+        observed_fixed_holiday(observation_date.year - 1, 1, 1),
         observed_fixed_holiday(observation_date.year, 1, 1),
+        observed_fixed_holiday(observation_date.year + 1, 1, 1),
         observed_fixed_holiday(observation_date.year, 7, 4),
         observed_fixed_holiday(observation_date.year, 12, 25),
         nth_weekday_of_month(observation_date.year, 11, weekday=3, occurrence=4),
@@ -106,7 +110,7 @@ def build_features(rows: list[PriceRow], index: int, external_feature_values: li
         rolling_std(window_5),
         *seasonal_features(rows[index].date),
     ]
-    if external_feature_values:
+    if external_feature_values is not None:
         feature_values.extend(external_feature_values)
     return feature_values
 
@@ -115,7 +119,11 @@ def build_samples(rows: list[PriceRow], external_feature_lookup: dict[str, list[
     samples: list[Sample] = []
     for index in range(10, len(rows) - 1):
         current_price = rows[index].price
-        external_feature_values = external_feature_lookup.get(rows[index].date, []) if external_feature_lookup else None
+        external_feature_values = None
+        if external_feature_lookup is not None:
+            external_feature_values = external_feature_lookup.get(rows[index].date)
+            if external_feature_values is None:
+                raise KeyError(f"Missing external features for {rows[index].date}.")
         samples.append(
             Sample(
                 date=rows[index].date,
@@ -233,7 +241,11 @@ def latest_prediction(
 ) -> dict[str, Any]:
     current_index = len(rows) - 1
     current_price = rows[current_index].price
-    external_feature_values = external_feature_lookup.get(rows[current_index].date, []) if external_feature_lookup else None
+    external_feature_values = None
+    if external_feature_lookup is not None:
+        external_feature_values = external_feature_lookup.get(rows[current_index].date)
+        if external_feature_values is None:
+            raise KeyError(f"Missing external features for {rows[current_index].date}.")
     features = build_features(rows, current_index, external_feature_values)
     predicted_price = predict(weights, features)
     return {
@@ -261,6 +273,7 @@ def data_audit(
     commodity_definition: Any,
     download_metadata: dict[str, Any],
     external_dataset_audits: list[dict[str, Any]],
+    external_alignment_start: str,
 ) -> dict[str, Any]:
     prices = [row.price for row in rows]
     return {
@@ -278,6 +291,7 @@ def data_audit(
             "average": round_float(sum(prices) / len(prices), 4),
         },
         "external_sources": external_dataset_audits,
+        "external_alignment_start": external_alignment_start,
         "head": [asdict(row) for row in rows[:3]],
         "tail": [asdict(row) for row in rows[-3:]],
     }
@@ -305,7 +319,7 @@ def write_manual_audit(
     model_audit_content: dict[str, Any],
     prediction_summary: dict[str, Any],
 ) -> None:
-    external_feature_list = model_audit_content["external_features"] or ["None"]
+    external_feature_list = model_audit_content["external_features"]
     lines = [
         "# Manual Verification Audit",
         "",
@@ -319,7 +333,7 @@ def write_manual_audit(
         "",
         "## Model checks",
         f"- Trained at: {model_audit_content['trained_at']}",
-        f"- External feature commodities: {', '.join(external_feature_list)}",
+        f"- External feature commodities: {', '.join(external_feature_list) if external_feature_list else 'None'}",
         f"- Training samples: {model_audit_content['train_sample_count']}",
         f"- Test samples: {model_audit_content['test_sample_count']}",
         f"- Test MAE: {model_audit_content['test_metrics']['mae']}",
@@ -369,9 +383,10 @@ def run_pipeline(
     external_feature_commodities = [
         external_name for external_name in (external_feature_commodities or []) if external_name != commodity_name
     ]
-    external_feature_lookup: dict[str, list[float]] = {}
+    external_feature_lookup: dict[str, list[float]] | None = None
     external_feature_names: list[str] = []
     external_dataset_audits: list[dict[str, Any]] = []
+    external_alignment_start = ""
     if external_feature_commodities:
         external_feature_result = build_external_feature_lookup(
             project_root,
@@ -379,9 +394,20 @@ def run_pipeline(
             external_feature_commodities,
             fill_method=fill_method,
         )
+        external_alignment_start = external_feature_result["available_from"]
         external_feature_lookup = external_feature_result["aligned_by_date"]
         external_feature_names = external_feature_result["feature_names"]
         external_dataset_audits = external_feature_result["dataset_audits"]
+        if external_alignment_start:
+            rows = [row for row in rows if row.date >= external_alignment_start]
+            external_feature_lookup = {
+                target_date: feature_values
+                for target_date, feature_values in external_feature_lookup.items()
+                if target_date >= external_alignment_start
+            }
+        for target_date, feature_values in external_feature_lookup.items():
+            if any(math.isnan(value) for value in feature_values):
+                raise ValueError(f"External feature alignment produced NaN values for {target_date}.")
 
     samples = build_samples(rows, external_feature_lookup)
     train_samples, test_samples = split_samples(samples)
@@ -400,6 +426,7 @@ def run_pipeline(
         commodity_definition,
         download_metadata,
         external_dataset_audits,
+        external_alignment_start,
     )
     model_audit_content = {
         "trained_at": utc_now(),

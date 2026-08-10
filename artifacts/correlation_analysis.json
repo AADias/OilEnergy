@@ -7,6 +7,10 @@
   ],
   "fill_method": "forward_fill",
   "correlation_threshold": 0.7,
+  "analysis_window": {
+    "start": "2003-06-01",
+    "end": "2022-08-08"
+  },
   "dataset_audits": [
     {
       "commodity": "brent",
@@ -18,7 +22,7 @@
         "start": "1987-05-20",
         "end": "2026-08-03"
       },
-      "downloaded_at": "2026-08-10T09:27:11+00:00",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
       "sha256": "b318845619753e4985c9da7004774d71c52575d421df2be414d3e565cc84140d",
       "byte_count": 178488
     },
@@ -34,7 +38,7 @@
       },
       "fill_method": "forward_fill",
       "proxy_note": "",
-      "downloaded_at": "2026-08-10T09:27:11+00:00",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
       "sha256": "6ae9a86262b251f281547f05fa28e40d611ff4256a6db7014a11c352a0c36763",
       "byte_count": 161465
     },
@@ -50,7 +54,7 @@
       },
       "fill_method": "forward_fill",
       "proxy_note": "",
-      "downloaded_at": "2026-08-10T09:27:12+00:00",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
       "sha256": "2007222efc756973052b07919f814a56e6ac0b8a5d311f1a86b012a2f4fb3a41",
       "byte_count": 114985
     },
@@ -66,7 +70,7 @@
       },
       "fill_method": "forward_fill",
       "proxy_note": "Free Qatar LNG spot prices are not published consistently, so this configuration uses the IMF/FRED Asia LNG benchmark as a public proxy for Qatar LNG exports.",
-      "downloaded_at": "2026-08-10T09:27:12+00:00",
+      "downloaded_at": "2026-08-10T09:33:05+00:00",
       "sha256": "58785029c72867cd3d8edf96dd21635cae38302c04794fb4c4f2270e4c4c3026",
       "byte_count": 6415
     }
@@ -74,52 +78,52 @@
   "pearson_correlation": {
     "brent": {
       "brent": 1.0,
-      "wti": 0.97204,
-      "henry_hub": 0.209908,
-      "qatar_lng": 0.733228
+      "wti": 0.974706,
+      "henry_hub": 0.142904,
+      "qatar_lng": 0.677719
     },
     "wti": {
-      "brent": 0.97204,
+      "brent": 0.974706,
       "wti": 1.0,
-      "henry_hub": 0.219125,
-      "qatar_lng": 0.716132
+      "henry_hub": 0.26825,
+      "qatar_lng": 0.64849
     },
     "henry_hub": {
-      "brent": 0.209908,
-      "wti": 0.219125,
+      "brent": 0.142904,
+      "wti": 0.26825,
       "henry_hub": 1.0,
-      "qatar_lng": 0.171055
+      "qatar_lng": 0.048837
     },
     "qatar_lng": {
-      "brent": 0.733228,
-      "wti": 0.716132,
-      "henry_hub": 0.171055,
+      "brent": 0.677719,
+      "wti": 0.64849,
+      "henry_hub": 0.048837,
       "qatar_lng": 1.0
     }
   },
   "spearman_correlation": {
     "brent": {
       "brent": 1.0,
-      "wti": 0.983869,
-      "henry_hub": 0.123639,
-      "qatar_lng": 0.882648
+      "wti": 0.97941,
+      "henry_hub": 0.171062,
+      "qatar_lng": 0.794798
     },
     "wti": {
-      "brent": 0.983869,
+      "brent": 0.97941,
       "wti": 1.0,
-      "henry_hub": 0.118598,
-      "qatar_lng": 0.882396
+      "henry_hub": 0.28131,
+      "qatar_lng": 0.781988
     },
     "henry_hub": {
-      "brent": 0.123639,
-      "wti": 0.118598,
+      "brent": 0.171062,
+      "wti": 0.28131,
       "henry_hub": 1.0,
-      "qatar_lng": 0.100838
+      "qatar_lng": 0.101667
     },
     "qatar_lng": {
-      "brent": 0.882648,
-      "wti": 0.882396,
-      "henry_hub": 0.100838,
+      "brent": 0.794798,
+      "wti": 0.781988,
+      "henry_hub": 0.101667,
       "qatar_lng": 1.0
     }
   },
@@ -127,45 +131,45 @@
     {
       "left": "brent",
       "right": "wti",
-      "pearson": 0.97204,
-      "spearman": 0.983869,
-      "strength": 0.983869
+      "pearson": 0.974706,
+      "spearman": 0.97941,
+      "strength": 0.97941
     },
     {
       "left": "brent",
       "right": "qatar_lng",
-      "pearson": 0.733228,
-      "spearman": 0.882648,
-      "strength": 0.882648
+      "pearson": 0.677719,
+      "spearman": 0.794798,
+      "strength": 0.794798
     },
     {
       "left": "wti",
       "right": "qatar_lng",
-      "pearson": 0.716132,
-      "spearman": 0.882396,
-      "strength": 0.882396
+      "pearson": 0.64849,
+      "spearman": 0.781988,
+      "strength": 0.781988
     }
   ],
   "feature_recommendations": [
     {
       "commodity": "wti",
       "include_as_feature": true,
-      "pearson": 0.97204,
-      "spearman": 0.983869,
+      "pearson": 0.974706,
+      "spearman": 0.97941,
       "reason": "Strong monotonic or linear relationship to the target commodity."
     },
     {
       "commodity": "qatar_lng",
       "include_as_feature": true,
-      "pearson": 0.733228,
-      "spearman": 0.882648,
+      "pearson": 0.677719,
+      "spearman": 0.794798,
       "reason": "Strong monotonic or linear relationship to the target commodity."
     },
     {
       "commodity": "henry_hub",
       "include_as_feature": false,
-      "pearson": 0.209908,
-      "spearman": 0.123639,
+      "pearson": 0.142904,
+      "spearman": 0.171062,
       "reason": "Useful for experimentation, but below the default high-correlation threshold."
     }
   ],

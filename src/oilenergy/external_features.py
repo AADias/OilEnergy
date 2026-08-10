@@ -50,7 +50,7 @@ def align_price_series(source_dates: list[str], source_prices: list[float], targ
             continue
 
         if target_date < current_day:
-            aligned_prices.append(current_value)
+            aligned_prices.append(float("nan"))
             continue
 
         aligned_prices.append(last_known_value)
@@ -83,22 +83,32 @@ def build_external_feature_lookup(
     commodity_names: list[str],
     fill_method: str = "forward_fill",
 ) -> dict[str, Any]:
-    aligned_by_date = {target_date: [] for target_date in target_dates}
+    if not commodity_names:
+        raise ValueError("build_external_feature_lookup requires at least one external commodity.")
     dataset_audits: list[dict[str, Any]] = []
+    loaded_series: list[tuple[str, Any, Path, dict[str, Any], list[Any]]] = []
+    available_from_dates: list[str] = []
 
     for commodity_name in commodity_names:
         definition = get_commodity_definition(project_root, commodity_name)
         dataset_path = project_root / "data" / "raw" / definition.local_filename
         download_metadata = download_dataset(definition.source_url, dataset_path)
         rows = load_rows(dataset_path, definition)
+        loaded_series.append((commodity_name, definition, dataset_path, download_metadata, rows))
+        available_from_dates.append(rows[0].date)
+    available_from = max(available_from_dates) if available_from_dates else ""
+    effective_target_dates = [target_date for target_date in target_dates if target_date >= available_from]
+    aligned_by_date: dict[str, list[float]] = {target_date: [] for target_date in effective_target_dates}
+
+    for commodity_name, definition, dataset_path, download_metadata, rows in loaded_series:
         aligned_prices = align_price_series(
             [row.date for row in rows],
             [row.price for row in rows],
-            target_dates,
+            effective_target_dates,
             fill_method,
         )
         aligned_returns = compute_returns(aligned_prices)
-        for target_date, aligned_price, aligned_return in zip(target_dates, aligned_prices, aligned_returns):
+        for target_date, aligned_price, aligned_return in zip(effective_target_dates, aligned_prices, aligned_returns):
             aligned_by_date[target_date].extend([aligned_price, aligned_return])
         dataset_audits.append(
             {
@@ -109,6 +119,7 @@ def build_external_feature_lookup(
                 "row_count": len(rows),
                 "date_range": {"start": rows[0].date, "end": rows[-1].date},
                 "fill_method": fill_method,
+                "available_from": rows[0].date,
                 **download_metadata,
             }
         )
@@ -117,4 +128,5 @@ def build_external_feature_lookup(
         "aligned_by_date": aligned_by_date,
         "feature_names": feature_names_for_commodities(commodity_names),
         "dataset_audits": dataset_audits,
+        "available_from": available_from,
     }

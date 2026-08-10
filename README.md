@@ -4,7 +4,7 @@ Real-data commodity modeling scaffold built around public Brent, WTI, Henry Hub,
 
 ## What changed
 
-- Multi-commodity configuration is now centralized in `/home/runner/work/OilEnergy/OilEnergy/config.yaml`
+- Multi-commodity configuration is now centralized in `config.yaml`
 - The same ridge-regression pipeline can run for Brent, WTI, Henry Hub gas, or a Qatar LNG proxy
 - Seasonality features are included by default: month, quarter, day of week, and weekend/holiday flag
 - Optional external commodity enrichment can add aligned prices and returns from other commodities

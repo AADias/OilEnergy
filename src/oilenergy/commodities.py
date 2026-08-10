@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,8 +47,101 @@ def config_path(project_root: Path) -> Path:
     return project_root / "config.yaml"
 
 
+def strip_inline_comment(line: str) -> str:
+    in_single_quote = False
+    in_double_quote = False
+    for index, character in enumerate(line):
+        if character == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+        elif character == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+        elif character == "#" and not in_single_quote and not in_double_quote:
+            return line[:index]
+    return line
+
+
+def parse_yaml_scalar(value: str) -> Any:
+    cleaned = value.strip()
+    if cleaned == "":
+        return ""
+    if cleaned in {"null", "~"}:
+        return None
+    if cleaned in {"true", "True"}:
+        return True
+    if cleaned in {"false", "False"}:
+        return False
+    if (cleaned.startswith('"') and cleaned.endswith('"')) or (cleaned.startswith("'") and cleaned.endswith("'")):
+        return cleaned[1:-1]
+    try:
+        return int(cleaned)
+    except ValueError:
+        pass
+    try:
+        return float(cleaned)
+    except ValueError:
+        return cleaned
+
+
+def parse_simple_yaml(text: str) -> dict[str, Any]:
+    # This parser intentionally supports only the subset used by config.yaml:
+    # nested mappings, scalar lists, quoted or plain scalars, and full-line/inline comments.
+    # If future configuration needs richer YAML features, replace this helper with a dedicated parser.
+    lines: list[tuple[int, str]] = []
+    for raw_line in text.splitlines():
+        uncommented = strip_inline_comment(raw_line).rstrip()
+        if not uncommented.strip():
+            continue
+        indent = len(uncommented) - len(uncommented.lstrip(" "))
+        lines.append((indent, uncommented.strip()))
+
+    def parse_block(index: int, indent: int) -> tuple[Any, int]:
+        if lines[index][1].startswith("- "):
+            list_values: list[Any] = []
+            while index < len(lines):
+                current_indent, current_line = lines[index]
+                if current_indent < indent or not current_line.startswith("- "):
+                    break
+                if current_indent != indent:
+                    raise ValueError("Unsupported YAML indentation in list item.")
+                item = current_line[2:].strip()
+                index += 1
+                if item:
+                    list_values.append(parse_yaml_scalar(item))
+                    continue
+                if index >= len(lines) or lines[index][0] <= current_indent:
+                    list_values.append({})
+                    continue
+                nested_value, index = parse_block(index, lines[index][0])
+                list_values.append(nested_value)
+            return list_values, index
+
+        mapping_values: dict[str, Any] = {}
+        while index < len(lines):
+            current_indent, current_line = lines[index]
+            if current_indent < indent or current_line.startswith("- "):
+                break
+            if current_indent != indent:
+                raise ValueError("Unsupported YAML indentation in mapping entry.")
+            key, separator, remainder = current_line.partition(":")
+            if not separator:
+                raise ValueError(f"Invalid YAML line: {current_line}")
+            index += 1
+            if remainder.strip():
+                mapping_values[key.strip()] = parse_yaml_scalar(remainder.strip())
+                continue
+            if index < len(lines) and lines[index][0] > current_indent:
+                nested_value, index = parse_block(index, lines[index][0])
+                mapping_values[key.strip()] = nested_value
+            else:
+                mapping_values[key.strip()] = {}
+        return mapping_values, index
+
+    parsed, _ = parse_block(0, lines[0][0])
+    return parsed
+
+
 def load_config(project_root: Path) -> dict[str, Any]:
-    return json.loads(config_path(project_root).read_text(encoding="utf-8"))
+    return parse_simple_yaml(config_path(project_root).read_text(encoding="utf-8"))
 
 
 def commodity_definitions(project_root: Path) -> dict[str, CommodityDefinition]:
