@@ -1,80 +1,10 @@
 {
   "correlation_matrix": [
     {
-      "from": "henry_hub",
-      "to": "henry_hub",
-      "pearson_r": 1.0,
-      "n_observations": null,
-      "is_significant": true
-    },
-    {
-      "from": "henry_hub",
-      "to": "qatar_lng",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "henry_hub",
-      "to": "brent",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "henry_hub",
-      "to": "wti",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "henry_hub",
-      "to": "opec_basket",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "qatar_lng",
-      "to": "henry_hub",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "qatar_lng",
-      "to": "qatar_lng",
-      "pearson_r": 1.0,
-      "n_observations": null,
-      "is_significant": true
-    },
-    {
-      "from": "qatar_lng",
-      "to": "brent",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "qatar_lng",
-      "to": "wti",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
-      "from": "qatar_lng",
-      "to": "opec_basket",
-      "pearson_r": 1.0,
-      "n_observations": 9947,
-      "is_significant": true
-    },
-    {
       "from": "brent",
-      "to": "henry_hub",
+      "to": "brent",
       "pearson_r": 1.0,
-      "n_observations": 9947,
+      "n_observations": null,
       "is_significant": true
     },
     {
@@ -86,9 +16,9 @@
     },
     {
       "from": "brent",
-      "to": "brent",
+      "to": "henry_hub",
       "pearson_r": 1.0,
-      "n_observations": null,
+      "n_observations": 9947,
       "is_significant": true
     },
     {
@@ -106,8 +36,78 @@
       "is_significant": true
     },
     {
-      "from": "wti",
+      "from": "qatar_lng",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
       "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "qatar_lng",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "brent",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "qatar_lng",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "henry_hub",
+      "pearson_r": 1.0,
+      "n_observations": null,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "wti",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "henry_hub",
+      "to": "opec_basket",
+      "pearson_r": 1.0,
+      "n_observations": 9947,
+      "is_significant": true
+    },
+    {
+      "from": "wti",
+      "to": "brent",
       "pearson_r": 1.0,
       "n_observations": 9947,
       "is_significant": true
@@ -121,7 +121,7 @@
     },
     {
       "from": "wti",
-      "to": "brent",
+      "to": "henry_hub",
       "pearson_r": 1.0,
       "n_observations": 9947,
       "is_significant": true
@@ -142,7 +142,7 @@
     },
     {
       "from": "opec_basket",
-      "to": "henry_hub",
+      "to": "brent",
       "pearson_r": 1.0,
       "n_observations": 9947,
       "is_significant": true
@@ -156,7 +156,7 @@
     },
     {
       "from": "opec_basket",
-      "to": "brent",
+      "to": "henry_hub",
       "pearson_r": 1.0,
       "n_observations": 9947,
       "is_significant": true

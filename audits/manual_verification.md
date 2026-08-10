@@ -3,15 +3,15 @@
 ## Commodity: Brent Crude Oil
 
 ## Dataset checks
-- Source URL: data/raw/brent.csv
-- Local file: data/raw/brent.csv
+- Source URL: data\raw\brent.csv
+- Local file: data\raw\brent.csv
 - SHA256: N/A
 - Rows: 9947
 - Date range: 1987-05-20 to 2026-08-03
 - Data lineage: datasets/oil-prices GitHub repository (original source: EIA/ICE)
 
 ## Model checks
-- Trained at: 2026-08-10T09:44:56+00:00
+- Trained at: 2026-08-10T18:39:51+00:00
 - Feature flags: all
 - Training samples: 7948
 - Test samples: 1988
