@@ -73,6 +73,8 @@ def load_rows(csv_path: Path) -> list[PriceRow]:
 
 
 def rolling_mean(values: list[float]) -> float:
+    if not values:
+        raise ValueError("rolling_mean requires at least one value.")
     return sum(values) / len(values)
 
 
@@ -160,9 +162,7 @@ def fit_ridge_regression(train_samples: list[Sample], alpha: float = 1.0) -> lis
     gram_matrix = matrix_multiply(design_matrix_t, design_matrix)
     target_vector = matrix_vector_multiply(design_matrix_t, targets)
 
-    for row_index in range(len(gram_matrix)):
-        if row_index == 0:
-            continue
+    for row_index in range(1, len(gram_matrix)):
         gram_matrix[row_index][row_index] += alpha
 
     return solve_linear_system(gram_matrix, target_vector)
@@ -236,11 +236,17 @@ def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, A
     }
 
 
-def data_audit(rows: list[PriceRow], dataset_path: Path, source_url: str, download_metadata: dict[str, Any]) -> dict[str, Any]:
+def data_audit(
+    rows: list[PriceRow],
+    dataset_path: Path,
+    project_root: Path,
+    source_url: str,
+    download_metadata: dict[str, Any],
+) -> dict[str, Any]:
     prices = [row.price for row in rows]
     return {
         "source_url": source_url,
-        "local_dataset_path": str(dataset_path.relative_to(dataset_path.parents[2])),
+        "local_dataset_path": str(dataset_path.relative_to(project_root)),
         **download_metadata,
         "row_count": len(rows),
         "date_range": {"start": rows[0].date, "end": rows[-1].date},
@@ -322,7 +328,7 @@ def run_pipeline(project_root: Path) -> dict[str, Any]:
     test_metrics, predictions = evaluate(weights, test_samples)
     prediction_summary = latest_prediction(weights, rows)
 
-    dataset_audit_content = data_audit(rows, dataset_path, DATASET_URL, download_metadata)
+    dataset_audit_content = data_audit(rows, dataset_path, project_root, DATASET_URL, download_metadata)
     model_audit_content = {
         "trained_at": utc_now(),
         "feature_names": FEATURE_NAMES,
