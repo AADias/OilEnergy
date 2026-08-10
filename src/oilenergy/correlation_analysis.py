@@ -37,16 +37,46 @@ def _align_series(
     return prices_a, prices_b
 
 
+def _log_returns(prices: list[float]) -> list[float]:
+    """Convert a price series to log returns: log(p[t] / p[t-1]).
+
+    Log returns are stationary and economically meaningful for correlation.
+    Computing Pearson on raw price levels produces spuriously high (often near
+    1.0) correlations for any two upward-trending series even when the
+    underlying market dynamics are unrelated.
+    """
+    import math
+
+    returns: list[float] = []
+    for i in range(1, len(prices)):
+        prev = prices[i - 1]
+        curr = prices[i]
+        if prev > 0.0 and curr > 0.0:
+            returns.append(math.log(curr / prev))
+        else:
+            returns.append(0.0)
+    return returns
+
+
 def pearson_correlation(x: list[float], y: list[float]) -> float:
-    """Compute Pearson correlation coefficient between two equal-length lists."""
-    n = len(x)
+    """Compute Pearson correlation coefficient between two equal-length lists.
+
+    Input series are first converted to log returns so that the result
+    reflects co-movement in *changes* rather than spurious correlation driven
+    by a shared long-run upward trend in price levels.
+    """
+    # Convert levels to log returns
+    rx = _log_returns(x)
+    ry = _log_returns(y)
+
+    n = len(rx)
     if n < 3:
         return 0.0
-    mean_x = sum(x) / n
-    mean_y = sum(y) / n
-    cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y)) / n
-    std_x = statistics.pstdev(x)
-    std_y = statistics.pstdev(y)
+    mean_x = sum(rx) / n
+    mean_y = sum(ry) / n
+    cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(rx, ry)) / n
+    std_x = statistics.pstdev(rx)
+    std_y = statistics.pstdev(ry)
     if std_x == 0.0 or std_y == 0.0:
         return 0.0
     return cov / (std_x * std_y)

@@ -96,3 +96,23 @@ commodities:
       when official OPEC basket data is unavailable.
     notes: >
       For official OPEC basket prices: https://www.opec.org/opec_web/en/data_graphs/40.htm
+
+  dubai_crude:
+    name: "Dubai Crude (Oman/Dubai Benchmark)"
+    type: oil
+    region: middle_east
+    primary_source: fred
+    fred_series: "POILDUBUSDM"
+    yahoo_ticker: "MCO=F"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      Dubai/Oman crude is the primary pricing benchmark for Middle East sour crude
+      sold into Asia. It is published by S&P Global Platts and used by QatarEnergy,
+      Saudi Aramco, and Abu Dhabi's ADNOC for Asian contract pricing. Monthly FRED
+      series POILDUBUSDM is used; daily data requires a Platts subscription.
+    notes: >
+      FRED series POILDUBUSDM is monthly average USD/barrel (IMF primary commodity
+      prices). For higher-frequency data, use the DME (Dubai Mercantile Exchange)
+      Oman crude futures (ticker OQD). The Dubai/Oman spread vs Brent is a key
+      indicator of Middle East crude demand from Asia.

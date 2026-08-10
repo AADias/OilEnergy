@@ -143,6 +143,7 @@ def build_samples(
     rows: list[PriceRow],
     use_seasonality: bool = False,
     external_feature_sets: list[Any] | None = None,
+    horizon: int = 1,
 ) -> tuple[list[Sample], list[str]]:
     """Build feature samples from a price series.
 
@@ -150,11 +151,16 @@ def build_samples(
         rows: Ordered list of price observations.
         use_seasonality: If True, append calendar/seasonal features.
         external_feature_sets: Optional list of ExternalFeatureSet objects.
+        horizon: Number of trading sessions ahead to predict (default 1).
+                 Phase 2 extension — supports multi-step forecasting.
 
     Returns:
         (samples, feature_names)
     """
     from .external_features import enrich_features
+
+    if horizon < 1:
+        raise ValueError(f"horizon must be >= 1, got {horizon}")
 
     base_names = list(BASE_FEATURE_NAMES)
     seasonal_names = list(SEASONALITY_FEATURE_NAMES) if use_seasonality else []
@@ -168,7 +174,7 @@ def build_samples(
         feature_names = feature_names + list(fs.feature_names)
 
     samples: list[Sample] = []
-    for index in range(10, len(rows) - 1):
+    for index in range(10, len(rows) - horizon):
         current_price = rows[index].price
         base_feats = build_features(rows, index)
         combined = list(base_feats)
@@ -180,7 +186,7 @@ def build_samples(
             Sample(
                 date=rows[index].date,
                 current_price=current_price,
-                target_price=rows[index + 1].price,
+                target_price=rows[index + horizon].price,
                 features=combined,
             )
         )
@@ -402,6 +408,7 @@ def run_pipeline(
     project_root: Path,
     commodity: str = "brent",
     features: str = "base",
+    horizon: int = 1,
 ) -> dict[str, Any]:
     """Run the full OilEnergy forecasting pipeline.
 
@@ -414,6 +421,8 @@ def run_pipeline(
                   "seasonality" — add calendar/seasonal features
                   "external"    — add correlated commodity cross-features
                   "all"         — enable all feature groups
+        horizon: Number of trading sessions ahead to forecast (default 1).
+                 Phase 2 extension. Example: horizon=5 forecasts one week ahead.
 
     Returns:
         dict containing dataset_audit, model_audit, correlation_audit (if external),
@@ -462,6 +471,7 @@ def run_pipeline(
         rows,
         use_seasonality=use_seasonality,
         external_feature_sets=external_feature_sets if use_external else None,
+        horizon=horizon,
     )
     train_samples, test_samples = split_samples(samples)
 
@@ -488,6 +498,7 @@ def run_pipeline(
         "latest_observation_price": round_float(current_price, 4),
         "predicted_next_price": round_float(predicted_price, 4),
         "predicted_direction_up": bool(predicted_price >= current_price),
+        "forecast_horizon_days": horizon,
     }
 
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
@@ -498,6 +509,7 @@ def run_pipeline(
         "commodity_name": commodity_name,
         "trained_at": utc_now(),
         "feature_flags": features,
+        "forecast_horizon_days": horizon,
         "feature_names": feature_names,
         "coefficients": {
             "intercept": round_float(weights[0]),
