@@ -11,7 +11,7 @@
 - Data lineage: datasets/oil-prices GitHub repository (original source: EIA/ICE)
 
 ## Model checks
-- Trained at: 2026-08-11T07:44:25+00:00
+- Trained at: 2026-08-11T07:58:56+00:00
 - Feature flags: base
 - Training samples: 7948
 - Test samples: 1988
@@ -31,7 +31,7 @@
 
 Forecast Summary — Brent Crude Oil
 
-Based on current market data, Brent Crude Oil is showing a upward trend. The model forecasts the next trading session price at 88.9 (current observation: 88.9).
+Based on current market data, Brent Crude Oil is showing an upward trend. The model forecasts the next trading session price at 88.9 (current observation: 88.9).
 
 The model achieves 53.2% directional accuracy on historical test data, with a mean absolute error of 1.409995. This provides a quantitative baseline for price direction; regional energy professionals should combine these signals with geopolitical context, OPEC supply decisions, and seasonal demand factors.
 

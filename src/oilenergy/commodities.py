@@ -103,6 +103,68 @@ COMMODITIES: dict[str, dict[str, Any]] = {
         "is_proxy": True,
         "proxy_for": "OPEC Reference Basket",
     },
+    "dubai_crude": {
+        "name": "Dubai Crude Oil",
+        "type": "oil",
+        "region": "middle_east",
+        "primary_source": "fred",
+        "fred_series": "DCOILBRENTEU",
+        "price_column": "value",
+        "date_column": "date",
+        "description": (
+            "Dubai Fateh crude oil — the primary benchmark for Middle East crude exports "
+            "to Asia. Dubai/Brent typically trades at a small discount to Brent. "
+            "Official Dubai price data is not available in free machine-readable form; "
+            "Brent is used as a proxy (spread ~$0–3/bbl)."
+        ),
+        "data_lineage": (
+            "FRED series DCOILBRENTEU (Brent) used as Dubai crude proxy. "
+            "Official Dubai prices: https://www.spglobal.com/commodityinsights/en/market-insights/latest-news/oil"
+        ),
+        "is_proxy": True,
+        "proxy_for": "Dubai Crude Oil (Fateh)",
+    },
+    "eu_ttf": {
+        "name": "European TTF Natural Gas",
+        "type": "gas",
+        "region": "europe",
+        "primary_source": "fred",
+        "fred_series": "DHHNGSP",
+        "price_column": "value",
+        "date_column": "date",
+        "description": (
+            "European TTF (Title Transfer Facility) natural gas benchmark. "
+            "TTF is the most liquid European gas hub and a key global LNG pricing reference. "
+            "No free daily TTF data is publicly available; Henry Hub is used as a directional proxy."
+        ),
+        "data_lineage": (
+            "FRED series DHHNGSP (Henry Hub) used as European TTF proxy. "
+            "Official TTF data: https://www.theice.com/products/27996665 "
+            "and https://www.gasunie.nl/en/our-network/title-transfer-facility-ttf"
+        ),
+        "is_proxy": True,
+        "proxy_for": "European TTF Natural Gas",
+    },
+    "lng_jkm": {
+        "name": "LNG Japan/Korea Marker",
+        "type": "gas",
+        "region": "asia_pacific",
+        "primary_source": "fred",
+        "fred_series": "DHHNGSP",
+        "price_column": "value",
+        "date_column": "date",
+        "description": (
+            "JKM (Japan-Korea Marker) — the primary LNG benchmark for Asia-Pacific spot cargoes. "
+            "Qatar is a leading JKM supplier. No free daily JKM data is publicly available; "
+            "Henry Hub is used as a directional proxy."
+        ),
+        "data_lineage": (
+            "FRED series DHHNGSP (Henry Hub) used as JKM proxy. "
+            "Official JKM data: https://www.spglobal.com/commodityinsights/en/market-insights"
+        ),
+        "is_proxy": True,
+        "proxy_for": "LNG Japan-Korea Marker (JKM)",
+    },
 }
 
 
@@ -212,7 +274,11 @@ def load_commodity(
         raise ValueError(f"Unknown commodity '{commodity_key}'. Available: {available}")
 
     config = COMMODITIES[commodity_key]
-    cache_path = (cache_dir / f"{commodity_key}.csv") if cache_dir else None
+    # Build a safe cache filename: use only alphanumeric chars and underscores.
+    # commodity_key is validated above against COMMODITIES, but we sanitize
+    # explicitly so that the cache path cannot escape the cache directory.
+    safe_key = "".join(c for c in commodity_key if c.isalnum() or c == "_")
+    cache_path = (cache_dir / f"{safe_key}.csv") if cache_dir else None
 
     # 1. Try cache
     if cache_path and cache_path.exists():

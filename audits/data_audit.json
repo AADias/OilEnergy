@@ -8,7 +8,7 @@
   "proxy_for": null,
   "canonical_series_id": "fred:DCOILBRENTEU",
   "loaded_from_cache": "data/raw/brent.csv",
-  "loaded_at": "2026-08-11T07:44:25+00:00",
+  "loaded_at": "2026-08-11T07:58:55+00:00",
   "row_count": 9947,
   "date_range": {
     "start": "1987-05-20",

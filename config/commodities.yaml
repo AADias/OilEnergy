@@ -100,3 +100,56 @@ commodities:
       For official OPEC basket prices: https://www.opec.org/opec_web/en/data_graphs/40.htm
     is_proxy: true
     proxy_for: "OPEC Reference Basket"
+
+  dubai_crude:
+    name: "Dubai Crude Oil"
+    type: oil
+    region: middle_east
+    primary_source: fred
+    fred_series: "DCOILBRENTEU"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      Dubai Fateh crude oil — the primary benchmark for Middle East crude exports
+      to Asia. Dubai/Brent typically trades at a small discount (~$0–3/bbl).
+      Official Dubai price data is not available in free machine-readable form;
+      Brent (FRED DCOILBRENTEU) is used as a close proxy.
+    notes: >
+      Official Dubai prices: https://www.spglobal.com/commodityinsights
+    is_proxy: true
+    proxy_for: "Dubai Crude Oil (Fateh)"
+
+  eu_ttf:
+    name: "European TTF Natural Gas"
+    type: gas
+    region: europe
+    primary_source: fred
+    fred_series: "DHHNGSP"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      European TTF (Title Transfer Facility) natural gas — the most liquid
+      European gas hub and a key global LNG pricing reference.
+      No free daily TTF data is publicly available; Henry Hub (FRED DHHNGSP)
+      is used as a directional proxy.
+    notes: >
+      Official TTF data: https://www.theice.com/products/27996665
+    is_proxy: true
+    proxy_for: "European TTF Natural Gas"
+
+  lng_jkm:
+    name: "LNG Japan/Korea Marker"
+    type: gas
+    region: asia_pacific
+    primary_source: fred
+    fred_series: "DHHNGSP"
+    price_column: "value"
+    date_column: "date"
+    description: >
+      JKM (Japan-Korea Marker) — the primary LNG benchmark for Asia-Pacific
+      spot cargoes. Qatar is a leading JKM supplier. No free daily JKM data
+      is publicly available; Henry Hub (FRED DHHNGSP) is used as a proxy.
+    notes: >
+      Official JKM data: https://www.spglobal.com/commodityinsights
+    is_proxy: true
+    proxy_for: "LNG Japan-Korea Marker (JKM)"

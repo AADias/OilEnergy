@@ -7,6 +7,9 @@
     "wti: excluded from correlations because demo Brent fallback was used.",
     "henry_hub: excluded from correlations because demo Brent fallback was used.",
     "qatar_lng: excluded from correlations because demo Brent fallback was used.",
-    "opec_basket: excluded from correlations because demo Brent fallback was used."
+    "opec_basket: excluded from correlations because demo Brent fallback was used.",
+    "dubai_crude: excluded from correlations because demo Brent fallback was used.",
+    "eu_ttf: excluded from correlations because demo Brent fallback was used.",
+    "lng_jkm: excluded from correlations because demo Brent fallback was used."
   ]
 }

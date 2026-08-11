@@ -38,6 +38,8 @@ SEASONALITY_FEATURE_NAMES = [
 AVAILABLE_MODELS = {
     "ridge": "Ridge regression baseline",
     "naive": "Naive persistence baseline (next price = current price)",
+    "exponential_smoothing": "Exponential smoothing (optimal α fitted on training data, pure Python)",
+    "xgboost": "XGBoost gradient boosting (requires: pip install xgboost)",
 }
 
 # Legacy alias — keeps existing code that imports FEATURE_NAMES working
@@ -272,11 +274,90 @@ def predict_ridge(weights: list[float], features: list[float]) -> float:
     return weights[0] + sum(weight * value for weight, value in zip(weights[1:], features))
 
 
+# ---------------------------------------------------------------------------
+# Exponential-smoothing model (pure Python, no external dependencies)
+# ---------------------------------------------------------------------------
+
+def _ewa_predict(alpha: float, features: list[float]) -> float:
+    """Exponentially weighted average using lag_1, lag_2, lag_3 features."""
+    lag_1, lag_2, lag_3 = features[0], features[1], features[2]
+    w1 = alpha
+    w2 = alpha * (1.0 - alpha)
+    w3 = alpha * (1.0 - alpha) ** 2
+    total_w = w1 + w2 + w3
+    return (w1 * lag_1 + w2 * lag_2 + w3 * lag_3) / total_w if total_w > 0 else lag_1
+
+
+def _ewa_mae(samples: list[Sample], alpha: float) -> float:
+    if not samples:
+        return float("inf")
+    return sum(abs(_ewa_predict(alpha, s.features) - s.target_price) for s in samples) / len(samples)
+
+
+def fit_exponential_smoothing(train_samples: list[Sample]) -> dict[str, Any]:
+    """Grid-search the optimal smoothing parameter α on training data."""
+    best_alpha = 0.3
+    best_mae = float("inf")
+    for alpha_int in range(5, 96, 5):  # α ∈ {0.05, 0.10, …, 0.95}
+        alpha = alpha_int / 100.0
+        mae = _ewa_mae(train_samples, alpha)
+        if mae < best_mae:
+            best_mae = mae
+            best_alpha = alpha
+    return {
+        "model_name": "exponential_smoothing",
+        "alpha": best_alpha,
+        "train_mae_at_best_alpha": round(best_mae, 6),
+    }
+
+
+# ---------------------------------------------------------------------------
+# XGBoost model (optional dependency)
+# ---------------------------------------------------------------------------
+
+def _check_xgboost() -> Any:
+    try:
+        import xgboost as xgb  # type: ignore[import]
+        return xgb
+    except ImportError as exc:
+        raise ImportError(
+            "xgboost is required for the 'xgboost' model. Install it: pip install xgboost"
+        ) from exc
+
+
+def fit_xgboost(train_samples: list[Sample]) -> dict[str, Any]:
+    """Train an XGBoost regressor.  Requires: pip install xgboost."""
+    xgb = _check_xgboost()
+    X = [s.features for s in train_samples]
+    y = [s.target_price for s in train_samples]
+    model = xgb.XGBRegressor(
+        n_estimators=200,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        verbosity=0,
+    )
+    model.fit(X, y)
+    return {"model_name": "xgboost", "_model": model}
+
+
+def predict_xgboost(model_state: dict[str, Any], features: list[float]) -> float:
+    import numpy as np  # type: ignore[import]
+    X = np.array(features, dtype=float).reshape(1, -1)
+    return float(model_state["_model"].predict(X)[0])
+
+
 def fit_model(train_samples: list[Sample], model_name: str) -> dict[str, Any]:
     if model_name == "ridge":
         return {"model_name": model_name, "weights": fit_ridge_regression(train_samples, alpha=1.0)}
     if model_name == "naive":
         return {"model_name": model_name}
+    if model_name == "exponential_smoothing":
+        return fit_exponential_smoothing(train_samples)
+    if model_name == "xgboost":
+        return fit_xgboost(train_samples)
     raise ValueError(f"Unsupported model '{model_name}'. Available models: {', '.join(sorted(AVAILABLE_MODELS))}")
 
 
@@ -286,6 +367,10 @@ def predict_model(model_state: dict[str, Any], current_price: float, features: l
         return predict_ridge(model_state["weights"], features)
     if model_name == "naive":
         return current_price
+    if model_name == "exponential_smoothing":
+        return _ewa_predict(model_state["alpha"], features)
+    if model_name == "xgboost":
+        return predict_xgboost(model_state, features)
     raise ValueError(f"Unsupported model '{model_name}'.")
 
 
@@ -655,13 +740,24 @@ def run_pipeline(
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
     commodity_name = COMMODITIES.get(commodity, {}).get("name", commodity)
 
-    coefficients: dict[str, float] = {}
+    coefficients: dict[str, Any] = {}
     if model_name == "ridge":
         weights = model_state["weights"]
         coefficients = {
             "intercept": round_float(weights[0]),
             **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
         }
+    elif model_name == "exponential_smoothing":
+        coefficients = {
+            "alpha": round_float(model_state["alpha"]),
+            "train_mae_at_best_alpha": round_float(model_state.get("train_mae_at_best_alpha", 0.0)),
+        }
+    elif model_name == "xgboost":
+        try:
+            importances = model_state["_model"].feature_importances_
+            coefficients = {name: round_float(float(imp)) for name, imp in zip(feature_names, importances)}
+        except Exception:
+            coefficients = {}
 
     model_audit_content = {
         "commodity": commodity,

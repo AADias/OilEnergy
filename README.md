@@ -42,7 +42,7 @@ python app.py
 The UI lets you select:
 - commodity
 - category (oil/gas)
-- model (`ridge` or `naive`)
+- model (`ridge`, `naive`, `exponential_smoothing`, or `xgboost`)
 - forecast horizon (1-30 days)
 - feature groups (`seasonality`, `weather`, `demand`, `external correlation`)
 
@@ -50,13 +50,16 @@ The UI lets you select:
 
 ## Commodities Supported
 
-| Key           | Name                     | Type | Region        |
-|---------------|--------------------------|------|---------------|
-| `brent`       | Brent Crude Oil          | oil  | Global        |
-| `wti`         | WTI Crude Oil            | oil  | US            |
-| `henry_hub`   | Henry Hub Natural Gas    | gas  | US            |
-| `qatar_lng`   | Qatar LNG (proxy)        | gas  | Middle East   |
-| `opec_basket` | OPEC Reference Basket    | oil  | Middle East   |
+| Key             | Name                        | Type | Region        | Source          |
+|-----------------|-----------------------------|------|---------------|-----------------|
+| `brent`         | Brent Crude Oil             | oil  | Global        | GitHub/EIA CSV  |
+| `wti`           | WTI Crude Oil               | oil  | US            | FRED DCOILWTICO |
+| `henry_hub`     | Henry Hub Natural Gas       | gas  | US            | FRED DHHNGSP    |
+| `qatar_lng`     | Qatar LNG (proxy)           | gas  | Middle East   | FRED DHHNGSP    |
+| `opec_basket`   | OPEC Reference Basket       | oil  | Middle East   | FRED DCOILBRENTEU |
+| `dubai_crude`   | Dubai Crude Oil (proxy)     | oil  | Middle East   | FRED DCOILBRENTEU |
+| `eu_ttf`        | European TTF Natural Gas    | gas  | Europe        | FRED DHHNGSP    |
+| `lng_jkm`       | LNG Japan/Korea Marker      | gas  | Asia-Pacific  | FRED DHHNGSP    |
 
 See [`config/commodities.yaml`](config/commodities.yaml) to add your own.
 
@@ -70,8 +73,8 @@ Pass `--features` with one or more of:
 |----------------|-------------|
 | `base`         | Price lags, rolling mean, momentum, volatility (default) |
 | `seasonality`  | Month, quarter, day-of-week, heating/cooling season indicators |
-| `weather`      | Optional weather context features from `data/context/weather.csv` |
-| `demand`       | Optional demand/consumption context features from `data/context/demand.csv` |
+| `weather`      | Daily mean temperature for Doha, Qatar (from `data/context/weather.csv`) |
+| `demand`       | Cooling/heating degree-day proxy for Qatar energy demand (from `data/context/demand.csv`) |
 | `external`     | Cross-commodity prices that correlate with the target (duplicates/proxy-equivalents excluded) |
 | `all`          | All of the above |
 
@@ -80,16 +83,22 @@ Example:
 python scripts/train_model.py --commodity qatar_lng --features seasonality,weather,demand,external
 ```
 
+To refresh weather/demand data from Open-Meteo API (Doha, Qatar, free, no key):
+```bash
+python scripts/fetch_weather.py          # fetches real data; falls back to synthetic if offline
+python scripts/fetch_weather.py --synthetic   # force synthetic Doha climate data
+```
+
 ---
 
 ## Models and Forecast Horizon
-
-Implemented model choices:
 
 | Model | Description |
 |------|-------------|
 | `ridge` | Ridge regression baseline (trained on engineered features) |
 | `naive` | Persistence baseline (`next_price = current_price`) |
+| `exponential_smoothing` | Exponential weighted average; optimal α fitted by grid search (pure Python) |
+| `xgboost` | XGBoost gradient boosting (requires `pip install xgboost numpy scikit-learn`) |
 
 Multi-day forecasting is recursive (`--horizon-days N`, 1-30).  
 Later steps use earlier predicted values, so uncertainty compounds with horizon length.
@@ -100,18 +109,45 @@ Later steps use earlier predicted values, so uncertainty compounds with horizon 
 
 Weather and demand features are auditable local inputs. They are never fabricated.
 
-- `data/context/weather.csv`
-- `data/context/demand.csv`
+- `data/context/weather.csv` — daily mean temperature in °C for Doha, Qatar
+- `data/context/demand.csv` — cooling/heating degree-day proxy (`temperature − 18°C`)
+
+Both files are populated by `scripts/fetch_weather.py`. When run with network access the script
+fetches **real historical temperature data** from [Open-Meteo](https://open-meteo.com) (free, no
+API key). In offline/sandbox environments it falls back to WMO climate normals for Doha.
 
 CSV format:
 
 ```csv
 date,value
-2026-01-01,1.23
-2026-01-02,1.18
+2026-01-01,18.42
+2026-01-02,17.95
 ```
 
 If a file is missing or invalid, the run reports that feature as **unavailable** in CLI/UI output and in `artifacts/model.json`.
+
+---
+
+## Web Server / Deployment
+
+```bash
+# Run locally
+python web_server.py                  # http://localhost:8080
+python web_server.py --port 5000
+
+# Docker
+docker build -t oilenergy .
+docker run -p 8080:8080 oilenergy
+```
+
+The web server provides:
+- A browser-based dashboard (commodity/model/feature selection + forecast results)
+- A live price-history + forecast chart (rendered in-browser using Canvas)
+- `GET /api/commodities` — JSON list of all commodities
+- `POST /api/forecast` — run forecast; accepts JSON body with `commodity`, `model_name`, `horizon_days`, `features`
+- `GET /api/audit` — latest audit JSON files
+
+No external web framework required — uses Python stdlib `http.server`.
 
 ---
 
@@ -139,22 +175,26 @@ The `.env` file is listed in `.gitignore` and will not be committed.
 
 ```
 OilEnergy/
-├── app.py                     — Local desktop UI (commodity/category/model/horizon selector)
+├── app.py                     — Local desktop UI (commodity/category/model/horizon selector + price chart)
+├── web_server.py              — Stdlib HTTP web server + REST API (no Flask required)
+├── requirements.txt           — Optional Python dependencies (xgboost, matplotlib, numpy)
+├── Dockerfile                 — Container image for cloud/server deployment
 ├── src/oilenergy/
-│   ├── pipeline.py           — Core ML pipeline (feature engineering, ridge regression)
-│   ├── commodities.py        — Commodity definitions and multi-source data loading
+│   ├── pipeline.py           — Core ML pipeline (ridge, naive, exponential_smoothing, xgboost)
+│   ├── commodities.py        — Commodity definitions and multi-source data loading (8 commodities)
 │   ├── context_features.py   — Optional weather/demand contextual feature loading
 │   ├── correlation_analysis.py — Cross-commodity Pearson correlation
 │   ├── external_features.py  — Enrich samples with correlated commodity prices
 │   └── llm_interpreter.py    — HuggingFace AI interpretation of results
 ├── scripts/
-│   └── train_model.py        — CLI entry point (--commodity, --features flags)
+│   ├── train_model.py        — CLI entry point (--commodity, --model, --features flags)
+│   └── fetch_weather.py      — Fetch/generate Doha weather & demand context data
 ├── config/
-│   └── commodities.yaml      — User-configurable commodity sources
+│   └── commodities.yaml      — User-configurable commodity sources (8 entries)
 ├── docs/
 │   └── MIDDLE_EAST_FOCUS.md  — Middle East energy sector positioning & case studies
 ├── data/raw/                 — Downloaded datasets (auto-created on first run)
-├── data/context/             — Optional local weather/demand CSV inputs
+├── data/context/             — weather.csv and demand.csv (Doha, Qatar)
 ├── artifacts/                — model.json, test_predictions.csv
 ├── audits/                   — data_audit.json, model_audit.json, correlation_audit.json,
 │                               manual_verification.md

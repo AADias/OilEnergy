@@ -14,6 +14,15 @@ from oilenergy import run_pipeline
 from oilenergy.commodities import list_commodities
 from oilenergy.pipeline import AVAILABLE_MODELS
 
+try:
+    import matplotlib
+    matplotlib.use("TkAgg")
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    _MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    _MATPLOTLIB_AVAILABLE = False
+
 
 class OilEnergyApp:
     def __init__(self, root: tk.Tk) -> None:
@@ -43,6 +52,8 @@ class OilEnergyApp:
     def _build_ui(self) -> None:
         frame = ttk.Frame(self.root, padding=12)
         frame.grid(column=0, row=0, sticky="nsew")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
 
         ttk.Label(frame, text="Category").grid(column=0, row=0, sticky="w")
         category_combo = ttk.Combobox(
@@ -94,12 +105,34 @@ class OilEnergyApp:
             column=1, row=6, sticky="e"
         )
 
-        output = tk.Text(frame, width=100, height=18)
-        output.grid(column=0, row=7, columnspan=2, sticky="nsew", pady=(8, 0))
-        self.output_widget = output
-
+        # Notebook: Results tab + Chart tab
+        notebook = ttk.Notebook(frame)
+        notebook.grid(column=0, row=7, columnspan=2, sticky="nsew", pady=(8, 0))
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(7, weight=1)
+
+        # Results text tab
+        results_frame = ttk.Frame(notebook)
+        notebook.add(results_frame, text="Results")
+        output = tk.Text(results_frame, width=100, height=18, wrap="none")
+        output.pack(fill="both", expand=True)
+        self.output_widget = output
+
+        # Chart tab
+        chart_frame = ttk.Frame(notebook)
+        notebook.add(chart_frame, text="Price Chart")
+        if _MATPLOTLIB_AVAILABLE:
+            self._fig = Figure(figsize=(10, 4), tight_layout=True)
+            self._ax = self._fig.add_subplot(111)
+            self._canvas = FigureCanvasTkAgg(self._fig, master=chart_frame)
+            self._canvas.get_tk_widget().pack(fill="both", expand=True)
+            self._ax.set_title("Run a forecast to see the price chart")
+            self._ax.set_xlabel("Date")
+            self._ax.set_ylabel("Price (USD)")
+            self._canvas.draw()
+        else:
+            ttk.Label(chart_frame, text="matplotlib not installed — pip install matplotlib").pack()
+
         self._on_category_change()
 
     def _on_category_change(self, *_: object) -> None:
@@ -160,6 +193,75 @@ class OilEnergyApp:
                 f"({status.get('source_path')})"
             )
         self._set_output("\n".join(lines))
+        self._update_chart(result)
+
+    def _update_chart(self, result: dict) -> None:
+        if not _MATPLOTLIB_AVAILABLE:
+            return
+        model_audit = result["model_audit"]
+        dataset_audit = result.get("dataset_audit", {})
+        commodity_name = model_audit.get("commodity_name", "")
+
+        # Collect historical price data from test predictions (last 90 rows)
+        try:
+            import csv as csv_mod
+            pred_path = self.project_root / "artifacts" / "test_predictions.csv"
+            hist_dates: list[str] = []
+            hist_prices: list[float] = []
+            with pred_path.open(newline="", encoding="utf-8") as fh:
+                reader = csv_mod.DictReader(fh)
+                rows_all = list(reader)
+            rows_tail = rows_all[-90:]
+            for r in rows_tail:
+                hist_dates.append(r["date"])
+                hist_prices.append(float(r["current_price"]))
+            # Append the last actual price as anchor for the forecast
+            if rows_all:
+                last = rows_all[-1]
+                hist_dates.append(last["date"])
+                hist_prices.append(float(last["actual_next_price"]))
+        except Exception:
+            hist_dates = []
+            hist_prices = []
+
+        forecast = model_audit.get("multi_day_forecast", [])
+
+        self._ax.clear()
+
+        # Plot historical prices
+        if hist_dates:
+            step = max(1, len(hist_dates) // 8)
+            tick_positions = list(range(0, len(hist_dates), step))
+            tick_labels = [hist_dates[i] for i in tick_positions]
+            self._ax.plot(range(len(hist_dates)), hist_prices, color="#1f77b4", linewidth=1.2, label="Historical")
+            self._ax.set_xticks(tick_positions)
+            self._ax.set_xticklabels(tick_labels, rotation=30, ha="right", fontsize=7)
+
+        # Plot forecast as continuation
+        if forecast and hist_prices:
+            n_hist = len(hist_prices)
+            fc_x = list(range(n_hist - 1, n_hist - 1 + len(forecast)))
+            fc_y = [hist_prices[-1]] + [f["predicted_price"] for f in forecast]
+            fc_x2 = list(range(n_hist - 1, n_hist + len(forecast)))
+            self._ax.plot(fc_x2, fc_y, color="#d62728", linewidth=1.5, linestyle="--", marker="o",
+                          markersize=4, label=f"Forecast ({len(forecast)}d)")
+            # Add forecast date labels
+            for i, f in enumerate(forecast):
+                self._ax.annotate(
+                    f["forecast_date"],
+                    xy=(n_hist - 1 + i + 1, f["predicted_price"]),
+                    fontsize=6,
+                    rotation=30,
+                    ha="left",
+                    color="#d62728",
+                )
+
+        self._ax.set_title(f"{commodity_name} — Price History & Forecast")
+        self._ax.set_ylabel("Price (USD)")
+        self._ax.legend(fontsize=8)
+        self._ax.grid(True, alpha=0.3)
+        self._fig.tight_layout()
+        self._canvas.draw()
 
     def _set_output(self, content: str) -> None:
         self.output_widget.delete("1.0", tk.END)
@@ -169,5 +271,5 @@ class OilEnergyApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = OilEnergyApp(root)
-    root.geometry("1000x620")
+    root.geometry("1100x780")
     root.mainloop()
