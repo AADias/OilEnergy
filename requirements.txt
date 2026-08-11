@@ -1,0 +1,13 @@
+# OilEnergy — Python dependencies
+#
+# Core (required):
+#   The pipeline core is pure Python stdlib with no required dependencies.
+#
+# Optional (enhanced models and charts):
+numpy>=1.24
+xgboost>=2.0
+scikit-learn>=1.3
+matplotlib>=3.7
+
+# Web server (for web_server.py):
+# No extra dependencies required — uses Python stdlib http.server

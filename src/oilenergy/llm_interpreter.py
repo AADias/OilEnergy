@@ -110,6 +110,7 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     pred_price = latest.get("predicted_next_price", "N/A")
     obs_price = latest.get("latest_observation_price", "N/A")
     direction = "upward" if latest.get("predicted_direction_up", False) else "downward"
+    article = "an" if direction == "upward" else "a"
     commodity = commodity_name or "the commodity"
 
     directional_pct = f"{float(directional) * 100:.1f}%" if isinstance(directional, (int, float)) else directional
@@ -117,7 +118,7 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     lines = [
         f"Forecast Summary — {commodity}",
         "",
-        f"Based on current market data, {commodity} is showing a {direction} trend. "
+        f"Based on current market data, {commodity} is showing {article} {direction} trend. "
         f"The model forecasts the next trading session price at {pred_price} "
         f"(current observation: {obs_price}).",
         "",
