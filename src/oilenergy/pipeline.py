@@ -143,6 +143,9 @@ def build_samples(
     rows: list[PriceRow],
     use_seasonality: bool = False,
     external_feature_sets: list[Any] | None = None,
+    context_series_list: list[Any] | None = None,
+    context_start: str | None = None,
+    context_end: str | None = None,
 ) -> tuple[list[Sample], list[str]]:
     """Build feature samples from a price series.
 
@@ -150,6 +153,10 @@ def build_samples(
         rows: Ordered list of price observations.
         use_seasonality: If True, append calendar/seasonal features.
         external_feature_sets: Optional list of ExternalFeatureSet objects.
+        context_series_list: Optional list of ContextSeries objects (weather/demand).
+        context_start: If set, skip samples dated before this (ISO date string).
+                       Used to avoid backfilling context data pre-history.
+        context_end: If set, skip samples dated after this (ISO date string).
 
     Returns:
         (samples, feature_names)
@@ -158,27 +165,50 @@ def build_samples(
 
     base_names = list(BASE_FEATURE_NAMES)
     seasonal_names = list(SEASONALITY_FEATURE_NAMES) if use_seasonality else []
-    # Number of features before any external series are appended
-    n_pre_external = len(base_names) + len(seasonal_names)
     pre_external_names = base_names + seasonal_names
 
     feature_names = pre_external_names[:]
     ext_sets = external_feature_sets or []
+    ctx_sets = context_series_list or []
+
     for fs in ext_sets:
         feature_names = feature_names + list(fs.feature_names)
+    for cs in ctx_sets:
+        feature_names = feature_names + list(cs.feature_names)
 
     samples: list[Sample] = []
     for index in range(10, len(rows) - 1):
+        date_str = rows[index].date
+
+        # Restrict to context coverage window to prevent backfill leakage
+        if context_start and date_str < context_start:
+            continue
+        if context_end and date_str > context_end:
+            continue
+
         current_price = rows[index].price
         base_feats = build_features(rows, index)
         combined = list(base_feats)
         if use_seasonality:
-            combined = combined + build_seasonality_features(rows[index].date)
+            combined = combined + build_seasonality_features(date_str)
         if ext_sets:
-            combined, _ = enrich_features(rows[index].date, combined, pre_external_names, ext_sets)
+            combined, _ = enrich_features(date_str, combined, pre_external_names, ext_sets)
+        if ctx_sets:
+            from .context_features import build_context_features
+            for cs in ctx_sets:
+                ctx_feats = build_context_features(date_str, cs)
+                if ctx_feats is not None:
+                    combined.extend(ctx_feats)
+                else:
+                    # Outside coverage — skip this sample entirely
+                    combined = None  # type: ignore[assignment]
+                    break
+            if combined is None:
+                continue
+
         samples.append(
             Sample(
-                date=rows[index].date,
+                date=date_str,
                 current_price=current_price,
                 target_price=rows[index + 1].price,
                 features=combined,
@@ -287,17 +317,134 @@ def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, flo
     return metrics, predictions
 
 
-def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, Any]:
-    current_index = len(rows) - 1
-    current_price = rows[current_index].price
-    features = build_features(rows, current_index)
-    predicted_price = predict(weights, features)
-    return {
-        "latest_observation_date": rows[current_index].date,
-        "latest_observation_price": round_float(current_price, 4),
-        "predicted_next_price": round_float(predicted_price, 4),
-        "predicted_direction_up": bool(predicted_price >= current_price),
+def naive_predict(rows: list[PriceRow]) -> float:
+    """Naive (persistence) baseline: predict last known price as the next price."""
+    return rows[-1].price
+
+
+def recursive_forecast(
+    weights: list[float],
+    rows: list[PriceRow],
+    horizon_days: int,
+    use_seasonality: bool = False,
+    external_feature_sets: list[Any] | None = None,
+    model: str = "ridge",
+) -> list[dict[str, Any]]:
+    """Produce a multi-day recursive forecast without using future observed values.
+
+    Disclosure: recursive forecasting feeds each predicted price back as the
+    latest observation for the next step.  External commodity series and context
+    data are carried forward at their LAST KNOWN value — no future observations
+    are used.  Forecast dates are calendar days; some may not be trading days.
+
+    Args:
+        weights:    Fitted ridge regression weights (ignored when model='naive').
+        rows:       Historical price rows (read-only, not extended).
+        horizon_days: Number of calendar days to forecast ahead.
+        use_seasonality: Include calendar features.
+        external_feature_sets: Optional external price feature sets.
+        model:      "ridge" or "naive".
+
+    Returns:
+        List of dicts with keys: step, date (calendar), predicted_price,
+        predicted_direction_up, method, carry_forward_disclosure.
+    """
+    from datetime import date as date_cls, timedelta
+    import datetime as dt_module
+
+    ext_sets = external_feature_sets or []
+    # Work on a mutable copy so we can append synthetic rows without mutating caller state
+    working_rows = list(rows)
+    last_date = working_rows[-1].date
+
+    results: list[dict[str, Any]] = []
+    try:
+        last_dt = date_cls.fromisoformat(last_date[:10])
+    except ValueError:
+        last_dt = date_cls.today()
+
+    for step in range(1, horizon_days + 1):
+        forecast_dt = last_dt + timedelta(days=step)
+        forecast_date = forecast_dt.isoformat()
+
+        if model == "naive":
+            predicted_price = working_rows[-1].price
+        else:
+            idx = len(working_rows) - 1
+            base_feats = build_features(working_rows, idx)
+            combined = list(base_feats)
+            if use_seasonality:
+                combined += build_seasonality_features(forecast_date)
+            if ext_sets:
+                from .external_features import enrich_features
+                pre_names = list(BASE_FEATURE_NAMES) + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
+                combined, _ = enrich_features(
+                    # Use the last available date in each external series (carry-forward)
+                    working_rows[-1].date,
+                    combined,
+                    pre_names,
+                    ext_sets,
+                )
+            predicted_price = predict(weights, combined)
+
+        results.append(
+            {
+                "step": step,
+                "date": forecast_date,
+                "date_type": "calendar_day",
+                "predicted_price": round_float(predicted_price, 4),
+                "predicted_direction_up": bool(predicted_price >= working_rows[-1].price),
+                "method": model,
+                "carry_forward_disclosure": (
+                    "Recursive: each predicted price is the input for the next step. "
+                    "External/context series held at last known value. "
+                    "Forecast dates are calendar days and may include weekends/holidays."
+                ) if step > 1 or ext_sets else (
+                    "Single-step forecast. "
+                    "Forecast date is a calendar day and may not be a trading day."
+                ),
+            }
+        )
+        # Append predicted price as a synthetic observation for the next recursive step
+        working_rows.append(PriceRow(date=forecast_date, price=predicted_price))
+
+    return results
+
+
+def evaluate_naive(samples: list[Sample]) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    """Evaluate a naive (persistence) model: predicted == current_price."""
+    predictions: list[dict[str, Any]] = []
+    absolute_errors: list[float] = []
+    squared_errors: list[float] = []
+    direction_hits = 0
+
+    for sample in samples:
+        predicted_price = sample.current_price  # naive: no change
+        absolute_error = abs(predicted_price - sample.target_price)
+        squared_error = (predicted_price - sample.target_price) ** 2
+        predicted_direction = 1 if predicted_price >= sample.current_price else 0
+        actual_direction = 1 if sample.target_price >= sample.current_price else 0
+        direction_hits += int(predicted_direction == actual_direction)
+        absolute_errors.append(absolute_error)
+        squared_errors.append(squared_error)
+        predictions.append(
+            {
+                "date": sample.date,
+                "current_price": round_float(sample.current_price, 4),
+                "actual_next_price": round_float(sample.target_price, 4),
+                "predicted_next_price": round_float(predicted_price, 4),
+                "absolute_error": round_float(absolute_error, 4),
+                "predicted_direction_up": bool(predicted_direction),
+                "actual_direction_up": bool(actual_direction),
+            }
+        )
+
+    metrics = {
+        "mae": round_float(sum(absolute_errors) / len(absolute_errors)),
+        "rmse": round_float(math.sqrt(sum(squared_errors) / len(squared_errors))),
+        "directional_accuracy": round_float(direction_hits / len(samples)),
     }
+    return metrics, predictions
 
 
 def data_audit(
@@ -402,6 +549,9 @@ def run_pipeline(
     project_root: Path,
     commodity: str = "brent",
     features: str = "base",
+    model: str = "ridge",
+    horizon_days: int = 1,
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Run the full OilEnergy forecasting pipeline.
 
@@ -413,18 +563,33 @@ def run_pipeline(
                   "base"        — price lags and rolling statistics only (default)
                   "seasonality" — add calendar/seasonal features
                   "external"    — add correlated commodity cross-features
-                  "all"         — enable all feature groups
+                  "context"     — add local weather/demand context features (requires
+                                  data/context/weather.csv and data/context/demand.csv;
+                                  features are applied ONLY for dates within the
+                                  explicit coverage of the context files)
+                  "all"         — enable all of the above
+        model: "ridge" (default) or "naive" (persistence baseline).
+        horizon_days: Number of calendar days to forecast ahead (default: 1).
+                      Multi-step forecasts use recursive carry-forward; see
+                      the "carry_forward_disclosure" field in the output.
+        category: Optional category filter label ("oil" or "gas") for auditing.
 
     Returns:
-        dict containing dataset_audit, model_audit, correlation_audit (if external),
-        and interpretation (LLM summary).
+        dict with dataset_audit, model_audit, correlation_audit, context_audit,
+        forecast (multi-step), and interpretation keys.
     """
     from .commodities import load_commodity, commodity_data_audit, COMMODITIES
     from .llm_interpreter import interpret_results
 
+    if horizon_days < 1:
+        raise ValueError("horizon_days must be >= 1")
+    if model not in ("ridge", "naive"):
+        raise ValueError(f"Unknown model '{model}'. Choose 'ridge' or 'naive'.")
+
     feature_flags = {f.strip().lower() for f in features.split(",")}
     use_seasonality = "seasonality" in feature_flags or "all" in feature_flags
     use_external = "external" in feature_flags or "all" in feature_flags
+    use_context = "context" in feature_flags or "all" in feature_flags
 
     artifacts_dir = project_root / "artifacts"
     audits_dir = project_root / "audits"
@@ -434,7 +599,31 @@ def run_pipeline(
     commodity_data = load_commodity(commodity, cache_dir=cache_dir)
     rows = commodity_data.rows
 
-    # Build correlation matrix and external feature sets if requested
+    # --- Load context features (weather, demand) with date-range restriction ---
+    context_audit: dict[str, Any] = {"requested": use_context, "series": {}}
+    context_series_list: list[Any] = []  # list of context_features.ContextSeries
+
+    if use_context:
+        from .context_features import load_context_series, build_context_features
+
+        for cat in ("weather", "demand"):
+            series, avail = load_context_series(cat, project_root)
+            context_audit["series"][cat] = avail
+            if series is not None:
+                context_series_list.append(series)
+
+        if not context_series_list:
+            context_audit["status"] = (
+                "unavailable — no context CSV files found in data/context/. "
+                "Run scripts/fetch_weather.py to fetch real data, or provide "
+                "your own CSV with columns: date, value."
+            )
+        else:
+            context_audit["status"] = "loaded"
+            loaded_cats = [s.category for s in context_series_list]
+            context_audit["loaded_categories"] = loaded_cats
+
+    # --- Build correlation matrix and external feature sets if requested ---
     external_feature_sets: list[Any] = []
     correlation_audit: dict[str, Any] = {}
 
@@ -451,6 +640,11 @@ def run_pipeline(
         correlation_audit = correlation_matrix_to_dict(matrix, [commodity] + all_keys, threshold=correlation_threshold)
         correlation_audit["significant_partners_for_target"] = partners
         correlation_audit["correlation_errors"] = corr_errors
+        correlation_audit["duplicate_source_exclusion_note"] = (
+            "Commodities sharing the same underlying data source (e.g. qatar_lng/henry_hub "
+            "or brent/opec_basket) are excluded from significant_partners to prevent "
+            "near-1.0 spurious correlations from contaminating external features."
+        )
 
         if partners:
             external_feature_sets, ext_errors = load_external_feature_sets(
@@ -458,31 +652,71 @@ def run_pipeline(
             )
             correlation_audit["external_feature_load_errors"] = ext_errors
 
+    # --- Determine effective date range for sample building ---
+    # When context features are active, restrict samples to dates within the
+    # context coverage window to avoid any backfill or leakage.
+    context_coverage_start: str | None = None
+    context_coverage_end: str | None = None
+    if use_context and context_series_list:
+        starts = [s.coverage_start for s in context_series_list if s.coverage_start]
+        ends = [s.coverage_end for s in context_series_list if s.coverage_end]
+        if starts and ends:
+            context_coverage_start = max(starts)
+            context_coverage_end = min(ends)
+            context_audit["effective_coverage"] = {
+                "start": context_coverage_start,
+                "end": context_coverage_end,
+                "note": (
+                    "Training samples are restricted to this window to prevent "
+                    "backfilling pre-history context values."
+                ),
+            }
+
     samples, feature_names = build_samples(
         rows,
         use_seasonality=use_seasonality,
         external_feature_sets=external_feature_sets if use_external else None,
+        context_series_list=context_series_list if use_context else None,
+        context_start=context_coverage_start,
+        context_end=context_coverage_end,
     )
     train_samples, test_samples = split_samples(samples)
 
-    weights = fit_ridge_regression(train_samples, alpha=1.0)
-    test_metrics, predictions = evaluate(weights, test_samples)
+    if model == "naive":
+        weights: list[float] = []
+    else:
+        weights = fit_ridge_regression(train_samples, alpha=1.0)
 
-    # Latest prediction
+    if model == "naive":
+        test_metrics, predictions = evaluate_naive(test_samples)
+    else:
+        test_metrics, predictions = evaluate(weights, test_samples)
+
+    # --- Single-step latest prediction ---
     current_index = len(rows) - 1
     current_price = rows[current_index].price
-    base_feats = build_features(rows, current_index)
-    combined_feats = list(base_feats)
-    if use_seasonality:
-        combined_feats = combined_feats + build_seasonality_features(rows[current_index].date)
-    if use_external and external_feature_sets:
-        from .external_features import enrich_features
-        # Build the pre-external portion of feature_names explicitly to avoid ambiguous slicing
-        pre_external_names = list(BASE_FEATURE_NAMES) + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
-        combined_feats, _ = enrich_features(
-            rows[current_index].date, combined_feats, pre_external_names, external_feature_sets
-        )
-    predicted_price = predict(weights, combined_feats)
+
+    if model == "naive":
+        predicted_price = naive_predict(rows)
+    else:
+        base_feats = build_features(rows, current_index)
+        combined_feats = list(base_feats)
+        if use_seasonality:
+            combined_feats = combined_feats + build_seasonality_features(rows[current_index].date)
+        if use_external and external_feature_sets:
+            from .external_features import enrich_features
+            pre_external_names = list(BASE_FEATURE_NAMES) + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
+            combined_feats, _ = enrich_features(
+                rows[current_index].date, combined_feats, pre_external_names, external_feature_sets
+            )
+        if use_context and context_series_list:
+            from .context_features import build_context_features
+            for cs in context_series_list:
+                ctx_feats = build_context_features(rows[current_index].date, cs)
+                if ctx_feats is not None:
+                    combined_feats.extend(ctx_feats)
+        predicted_price = predict(weights, combined_feats)
+
     prediction_summary = {
         "latest_observation_date": rows[current_index].date,
         "latest_observation_price": round_float(current_price, 4),
@@ -490,24 +724,53 @@ def run_pipeline(
         "predicted_direction_up": bool(predicted_price >= current_price),
     }
 
+    # --- Multi-day recursive forecast ---
+    forecast: list[dict[str, Any]] = []
+    if horizon_days > 1:
+        forecast = recursive_forecast(
+            weights,
+            rows,
+            horizon_days=horizon_days,
+            use_seasonality=use_seasonality,
+            external_feature_sets=external_feature_sets if use_external else None,
+            model=model,
+        )
+    else:
+        forecast = [
+            {
+                "step": 1,
+                "date": prediction_summary["latest_observation_date"],
+                "date_type": "calendar_day",
+                "predicted_price": prediction_summary["predicted_next_price"],
+                "predicted_direction_up": prediction_summary["predicted_direction_up"],
+                "method": model,
+                "carry_forward_disclosure": "Single-step forecast.",
+            }
+        ]
+
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
     commodity_name = COMMODITIES.get(commodity, {}).get("name", commodity)
 
     model_audit_content = {
         "commodity": commodity,
         "commodity_name": commodity_name,
+        "category": category or COMMODITIES.get(commodity, {}).get("type", "unknown"),
+        "model": model,
+        "horizon_days": horizon_days,
         "trained_at": utc_now(),
         "feature_flags": features,
         "feature_names": feature_names,
-        "coefficients": {
-            "intercept": round_float(weights[0]),
-            **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
-        },
         "train_sample_count": len(train_samples),
         "test_sample_count": len(test_samples),
         "test_metrics": test_metrics,
         "latest_prediction": prediction_summary,
+        "forecast": forecast,
     }
+    if model == "ridge":
+        model_audit_content["coefficients"] = {
+            "intercept": round_float(weights[0]),
+            **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
+        }
 
     # LLM interpretation
     interpretation = interpret_results(model_audit_content, commodity_name=commodity_name)
@@ -519,6 +782,8 @@ def run_pipeline(
     write_json(audits_dir / "model_audit.json", model_audit_content)
     if correlation_audit:
         write_json(audits_dir / "correlation_audit.json", correlation_audit)
+    if context_audit and use_context:
+        write_json(audits_dir / "context_audit.json", context_audit)
     write_manual_audit(
         audits_dir / "manual_verification.md",
         dataset_audit_content,
@@ -531,5 +796,7 @@ def run_pipeline(
         "dataset_audit": dataset_audit_content,
         "model_audit": model_audit_content,
         "correlation_audit": correlation_audit,
+        "context_audit": context_audit,
+        "forecast": forecast,
         "interpretation": interpretation,
     }

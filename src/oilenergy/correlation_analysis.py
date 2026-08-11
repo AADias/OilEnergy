@@ -3,6 +3,14 @@
 Computes pairwise Pearson correlation coefficients between commodity price series,
 aligns them to a common date index, and returns a matrix that downstream modules
 use to decide which commodities to include as external features.
+
+Duplicate-source safeguard
+--------------------------
+Commodities that share the same underlying data source (e.g. ``qatar_lng`` and
+``henry_hub`` both use FRED/DHHNGSP; ``brent`` and ``opec_basket`` both use
+FRED/DCOILBRENTEU) would produce artifically near-1.0 correlations because
+they are fetched from the same series.  ``significant_partners`` excludes these
+pairs automatically so they never contaminate external feature sets.
 """
 from __future__ import annotations
 
@@ -10,7 +18,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any
 
-from .commodities import CommodityData, PriceRow, load_commodity
+from .commodities import CommodityData, PriceRow, load_commodity, COMMODITIES
 from pathlib import Path
 
 
@@ -21,6 +29,24 @@ class CorrelationResult:
     pearson_r: float
     n_observations: int
     is_significant: bool  # |r| >= threshold
+
+def _underlying_source_id(key: str) -> str:
+    """Return a canonical identifier for the underlying data source of *key*.
+
+    Two commodities with the same source ID share data; their correlation is
+    not independently meaningful and must not be used as a cross-feature.
+    """
+    cfg = COMMODITIES.get(key, {})
+    fred = cfg.get("fred_series")
+    csv_url = cfg.get("csv_url")
+    # Prefer FRED series ID as the canonical identifier
+    return fred or csv_url or key
+
+
+def shared_underlying_source(key_a: str, key_b: str) -> bool:
+    """Return True when key_a and key_b share the same underlying data source."""
+    return _underlying_source_id(key_a) == _underlying_source_id(key_b)
+
 
 
 def _align_series(
@@ -134,9 +160,17 @@ def significant_partners(
     target_key: str,
     matrix: dict[tuple[str, str], CorrelationResult],
 ) -> list[str]:
-    """Return keys of commodities significantly correlated with target_key."""
+    """Return keys of commodities significantly correlated with target_key.
+
+    Excludes commodities that share the same underlying data source as
+    *target_key* (e.g. qatar_lng vs henry_hub) to prevent duplicate-series
+    contamination of external feature sets.
+    """
     return [
         key_b
         for (key_a, key_b), result in matrix.items()
-        if key_a == target_key and result.is_significant and key_b != target_key
+        if key_a == target_key
+        and result.is_significant
+        and key_b != target_key
+        and not shared_underlying_source(target_key, key_b)
     ]
