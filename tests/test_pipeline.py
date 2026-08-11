@@ -411,7 +411,6 @@ class TestFetchWeather(unittest.TestCase):
 
             weather_path = _Path(tmpdir) / "data" / "context" / "weather.csv"
             demand_path = _Path(tmpdir) / "data" / "context" / "demand.csv"
-            fw.main.__globals__  # noqa: B018  just check it exists
 
             # Directly call generate_demo_data + write_csv to test the labels
             from datetime import date

@@ -8,7 +8,7 @@ Duplicate-source safeguard
 --------------------------
 Commodities that share the same underlying data source (e.g. ``qatar_lng`` and
 ``henry_hub`` both use FRED/DHHNGSP; ``brent`` and ``opec_basket`` both use
-FRED/DCOILBRENTEU) would produce artifically near-1.0 correlations because
+FRED/DCOILBRENTEU) would produce artificially near-1.0 correlations because
 they are fetched from the same series.  ``significant_partners`` excludes these
 pairs automatically so they never contaminate external feature sets.
 """

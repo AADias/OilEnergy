@@ -736,15 +736,21 @@ def run_pipeline(
             model=model,
         )
     else:
+        from datetime import date as _date, timedelta as _timedelta
+        try:
+            _next_dt = _date.fromisoformat(rows[-1].date[:10]) + _timedelta(days=1)
+            _next_date = _next_dt.isoformat()
+        except ValueError:
+            _next_date = prediction_summary["latest_observation_date"]
         forecast = [
             {
                 "step": 1,
-                "date": prediction_summary["latest_observation_date"],
+                "date": _next_date,
                 "date_type": "calendar_day",
                 "predicted_price": prediction_summary["predicted_next_price"],
                 "predicted_direction_up": prediction_summary["predicted_direction_up"],
                 "method": model,
-                "carry_forward_disclosure": "Single-step forecast.",
+                "carry_forward_disclosure": "Single-step forecast. Forecast date is a calendar day and may not be a trading day.",
             }
         ]
 
