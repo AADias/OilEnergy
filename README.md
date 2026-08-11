@@ -18,18 +18,33 @@ git clone https://github.com/AADias/OilEnergy.git
 cd OilEnergy
 
 # Brent crude oil — default (backwards-compatible)
-set PYTHONPATH=src && python scripts/train_model.py           # Windows
+python scripts/train_model.py                                 # Windows (repo root)
 PYTHONPATH=src python3 scripts/train_model.py                 # Mac/Linux
 
-# Qatar LNG with seasonality features
-set PYTHONPATH=src && python scripts/train_model.py --commodity qatar_lng --features seasonality
+# Naive model, 7-day recursive horizon
+python scripts/train_model.py --model naive --horizon-days 7
 
-# Brent with cross-commodity correlations + seasonality
-set PYTHONPATH=src && python scripts/train_model.py --commodity brent --features all
+# Gas category, Qatar LNG proxy, contextual feature flags
+python scripts/train_model.py --category gas --commodity qatar_lng --features seasonality,weather,demand,external
 
 # List all available commodities
-set PYTHONPATH=src && python scripts/train_model.py --list-commodities
+python scripts/train_model.py --list-commodities
 ```
+
+### Windows app UI
+
+```bash
+cd C:\Users\<your-username>\OilEnergy
+set PYTHONPATH=src
+python app.py
+```
+
+The UI lets you select:
+- commodity
+- category (oil/gas)
+- model (`ridge` or `naive`)
+- forecast horizon (1-30 days)
+- feature groups (`seasonality`, `weather`, `demand`, `external correlation`)
 
 ---
 
@@ -55,13 +70,48 @@ Pass `--features` with one or more of:
 |----------------|-------------|
 | `base`         | Price lags, rolling mean, momentum, volatility (default) |
 | `seasonality`  | Month, quarter, day-of-week, heating/cooling season indicators |
-| `external`     | Cross-commodity prices that correlate with the target |
+| `weather`      | Optional weather context features from `data/context/weather.csv` |
+| `demand`       | Optional demand/consumption context features from `data/context/demand.csv` |
+| `external`     | Cross-commodity prices that correlate with the target (duplicates/proxy-equivalents excluded) |
 | `all`          | All of the above |
 
 Example:
 ```bash
-python scripts/train_model.py --commodity qatar_lng --features seasonality,external
+python scripts/train_model.py --commodity qatar_lng --features seasonality,weather,demand,external
 ```
+
+---
+
+## Models and Forecast Horizon
+
+Implemented model choices:
+
+| Model | Description |
+|------|-------------|
+| `ridge` | Ridge regression baseline (trained on engineered features) |
+| `naive` | Persistence baseline (`next_price = current_price`) |
+
+Multi-day forecasting is recursive (`--horizon-days N`, 1-30).  
+Later steps use earlier predicted values, so uncertainty compounds with horizon length.
+
+---
+
+## Contextual Features (Weather & Demand)
+
+Weather and demand features are auditable local inputs. They are never fabricated.
+
+- `data/context/weather.csv`
+- `data/context/demand.csv`
+
+CSV format:
+
+```csv
+date,value
+2026-01-01,1.23
+2026-01-02,1.18
+```
+
+If a file is missing or invalid, the run reports that feature as **unavailable** in CLI/UI output and in `artifacts/model.json`.
 
 ---
 
@@ -89,9 +139,11 @@ The `.env` file is listed in `.gitignore` and will not be committed.
 
 ```
 OilEnergy/
+├── app.py                     — Local desktop UI (commodity/category/model/horizon selector)
 ├── src/oilenergy/
 │   ├── pipeline.py           — Core ML pipeline (feature engineering, ridge regression)
 │   ├── commodities.py        — Commodity definitions and multi-source data loading
+│   ├── context_features.py   — Optional weather/demand contextual feature loading
 │   ├── correlation_analysis.py — Cross-commodity Pearson correlation
 │   ├── external_features.py  — Enrich samples with correlated commodity prices
 │   └── llm_interpreter.py    — HuggingFace AI interpretation of results
@@ -102,9 +154,11 @@ OilEnergy/
 ├── docs/
 │   └── MIDDLE_EAST_FOCUS.md  — Middle East energy sector positioning & case studies
 ├── data/raw/                 — Downloaded datasets (auto-created on first run)
+├── data/context/             — Optional local weather/demand CSV inputs
 ├── artifacts/                — model.json, test_predictions.csv
-└── audits/                   — data_audit.json, model_audit.json, correlation_audit.json,
-                                manual_verification.md
+├── audits/                   — data_audit.json, model_audit.json, correlation_audit.json,
+│                               manual_verification.md
+└── tests/                    — Regression tests for CLI/pipeline behavior
 ```
 
 ---
@@ -121,6 +175,13 @@ OilEnergy/
 
 All sources are **free and publicly available**. No API keys are required for
 data fetching (only HuggingFace token for AI summaries).
+
+### Proxy and Correlation Guardrails
+
+- Proxy commodities are explicitly labeled (`qatar_lng`, `opec_basket`).
+- Correlation analysis excludes duplicate underlying series (for example two commodities backed by the same FRED series).
+- Hidden Brent substitution is disabled by default.
+- Demo/offline Brent substitution is opt-in only via `--allow-demo-fallback`, and fallback series are excluded from correlation/model external features.
 
 ---
 

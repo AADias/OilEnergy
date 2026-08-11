@@ -79,6 +79,8 @@ commodities:
       or regional benchmarks; the correlation with Henry Hub is moderate but
       directionally informative. For official Qatar energy statistics see:
       https://www.qatarenergy.qa and https://www.opec.org/opec_web/en/data_graphs/40.htm
+    is_proxy: true
+    proxy_for: "Qatar LNG"
 
   opec_basket:
     name: "OPEC Reference Basket"
@@ -96,3 +98,5 @@ commodities:
       when official OPEC basket data is unavailable.
     notes: >
       For official OPEC basket prices: https://www.opec.org/opec_web/en/data_graphs/40.htm
+    is_proxy: true
+    proxy_for: "OPEC Reference Basket"

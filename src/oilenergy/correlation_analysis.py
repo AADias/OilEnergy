@@ -56,6 +56,7 @@ def compute_correlation_matrix(
     commodity_keys: list[str],
     cache_dir: Path | None = None,
     threshold: float = 0.5,
+    allow_demo_fallback: bool = False,
 ) -> tuple[dict[tuple[str, str], CorrelationResult], list[str]]:
     """Compute pairwise correlations for a list of commodity keys.
 
@@ -65,10 +66,27 @@ def compute_correlation_matrix(
     """
     loaded: dict[str, CommodityData] = {}
     errors: list[str] = []
+    seen_canonical_series: dict[str, str] = {}
 
     for key in commodity_keys:
         try:
-            loaded[key] = load_commodity(key, cache_dir=cache_dir)
+            commodity_data = load_commodity(
+                key, cache_dir=cache_dir, allow_demo_fallback=allow_demo_fallback
+            )
+            if commodity_data.source_type == "brent_fallback":
+                errors.append(
+                    f"{key}: excluded from correlations because demo Brent fallback was used."
+                )
+                continue
+            canonical_id = commodity_data.canonical_series_id
+            if canonical_id in seen_canonical_series:
+                errors.append(
+                    f"{key}: excluded from correlations because it duplicates underlying series "
+                    f"'{canonical_id}' already represented by '{seen_canonical_series[canonical_id]}'."
+                )
+                continue
+            seen_canonical_series[canonical_id] = key
+            loaded[key] = commodity_data
         except Exception as exc:
             errors.append(f"{key}: {exc}")
 

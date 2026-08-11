@@ -35,6 +35,7 @@ COMMODITIES: dict[str, dict[str, Any]] = {
         "date_column": "Date",
         "description": "Brent crude oil — global benchmark used for ~2/3 of world oil trade.",
         "data_lineage": "datasets/oil-prices GitHub repository (original source: EIA/ICE)",
+        "is_proxy": False,
     },
     "wti": {
         "name": "WTI Crude Oil",
@@ -46,6 +47,7 @@ COMMODITIES: dict[str, dict[str, Any]] = {
         "date_column": "date",
         "description": "West Texas Intermediate crude oil — US benchmark.",
         "data_lineage": "FRED (Federal Reserve Economic Data) series DCOILWTICO — EIA source",
+        "is_proxy": False,
     },
     "henry_hub": {
         "name": "Henry Hub Natural Gas",
@@ -57,6 +59,7 @@ COMMODITIES: dict[str, dict[str, Any]] = {
         "date_column": "date",
         "description": "Henry Hub spot natural gas price — US benchmark for gas markets.",
         "data_lineage": "FRED series DHHNGSP — EIA/Henry Hub spot price",
+        "is_proxy": False,
     },
     "qatar_lng": {
         "name": "Qatar LNG (Henry Hub Proxy)",
@@ -77,6 +80,8 @@ COMMODITIES: dict[str, dict[str, Any]] = {
             "Official Qatar energy data: https://www.qatarenergy.qa "
             "OPEC Qatar data: https://www.opec.org/opec_web/en/data_graphs/40.htm"
         ),
+        "is_proxy": True,
+        "proxy_for": "Qatar LNG",
     },
     "opec_basket": {
         "name": "OPEC Reference Basket",
@@ -95,6 +100,8 @@ COMMODITIES: dict[str, dict[str, Any]] = {
             "FRED series DCOILBRENTEU (Brent) used as OPEC basket proxy. "
             "Official OPEC basket: https://www.opec.org/opec_web/en/data_graphs/40.htm"
         ),
+        "is_proxy": True,
+        "proxy_for": "OPEC Reference Basket",
     },
 }
 
@@ -136,6 +143,9 @@ class CommodityData:
     rows: list[PriceRow] = field(default_factory=list)
     download_metadata: dict[str, Any] = field(default_factory=dict)
     data_lineage: str = ""
+    is_proxy: bool = False
+    proxy_for: str | None = None
+    canonical_series_id: str = ""
 
 
 def fetch_fred_series(series_id: str) -> tuple[bytes, str]:
@@ -175,9 +185,18 @@ def parse_legacy_csv(content: bytes, date_col: str, price_col: str) -> list[Pric
     return rows
 
 
+def _canonical_series_id(commodity_key: str, config: dict[str, Any]) -> str:
+    if config.get("fred_series"):
+        return f"fred:{config['fred_series']}"
+    if config.get("csv_url"):
+        return f"csv:{config['csv_url']}"
+    return f"commodity:{commodity_key}"
+
+
 def load_commodity(
     commodity_key: str,
     cache_dir: Optional[Path] = None,
+    allow_demo_fallback: bool = False,
 ) -> CommodityData:
     """Load price data for a named commodity.
 
@@ -211,6 +230,9 @@ def load_commodity(
                 rows=rows,
                 download_metadata={"loaded_from_cache": str(cache_path), "loaded_at": _utc_now()},
                 data_lineage=config.get("data_lineage", ""),
+                is_proxy=bool(config.get("is_proxy", False)),
+                proxy_for=config.get("proxy_for"),
+                canonical_series_id=_canonical_series_id(commodity_key, config),
             )
 
     errors: list[str] = []
@@ -231,23 +253,26 @@ def load_commodity(
     except Exception as exc:
         errors.append(f"fallback: {exc}")
 
-    # 4. Last resort: use local brent.csv as a shape-compatible proxy (demo/offline mode)
-    try:
-        result = _try_local_brent_fallback(commodity_key, config, cache_dir)
-        if result:
-            import sys
-            print(
-                f"[WARNING] Could not reach network data sources for '{commodity_key}'. "
-                f"Using local Brent data as a demo fallback. "
-                f"Errors: {'; '.join(errors)}",
-                file=sys.stderr,
-            )
-            return result
-    except Exception as exc:
-        errors.append(f"brent_fallback: {exc}")
+    # 4. Optional explicit fallback: use local brent.csv as a shape-compatible proxy (demo/offline mode)
+    if allow_demo_fallback:
+        try:
+            result = _try_local_brent_fallback(commodity_key, config, cache_dir)
+            if result:
+                import sys
+                print(
+                    f"[WARNING] Could not reach network data sources for '{commodity_key}'. "
+                    f"Using local Brent data as a demo fallback. "
+                    f"Errors: {'; '.join(errors)}",
+                    file=sys.stderr,
+                )
+                return result
+        except Exception as exc:
+            errors.append(f"brent_fallback: {exc}")
 
     raise RuntimeError(
-        f"Failed to load commodity '{commodity_key}'. Tried: {'; '.join(errors)}"
+        f"Failed to load commodity '{commodity_key}'. Tried: {'; '.join(errors)}. "
+        "Re-run with '--allow-demo-fallback' (CLI) or allow_demo_fallback=True (Python API) "
+        "to allow local Brent substitution in demo mode."
     )
 
 
@@ -287,6 +312,9 @@ def _try_local_brent_fallback(
                         + f" [FALLBACK: using local Brent CSV because {config.get('fred_series', 'FRED')} "
                         "was unreachable. Replace with real data for production use.]"
                     ),
+                    is_proxy=True,
+                    proxy_for=config["name"],
+                    canonical_series_id="demo:brent-fallback",
                 )
     return None
 
@@ -313,6 +341,9 @@ def _try_primary_source(
                     "source": "csv_url",
                 },
                 data_lineage=config.get("data_lineage", ""),
+                is_proxy=bool(config.get("is_proxy", False)),
+                proxy_for=config.get("proxy_for"),
+                canonical_series_id=_canonical_series_id(key, config),
             )
     elif config.get("fred_series"):
         content, url = fetch_fred_series(config["fred_series"])
@@ -333,6 +364,9 @@ def _try_primary_source(
                     "series_id": config["fred_series"],
                 },
                 data_lineage=config.get("data_lineage", ""),
+                is_proxy=bool(config.get("is_proxy", False)),
+                proxy_for=config.get("proxy_for"),
+                canonical_series_id=_canonical_series_id(key, config),
             )
     return None
 
@@ -360,6 +394,9 @@ def _try_fallback_source(
                     "series_id": config["fred_series"],
                 },
                 data_lineage=config.get("data_lineage", "") + " [loaded via FRED fallback]",
+                is_proxy=bool(config.get("is_proxy", False)),
+                proxy_for=config.get("proxy_for"),
+                canonical_series_id=_canonical_series_id(key, config),
             )
     elif config.get("primary_source") == "fred" and config.get("csv_url"):
         url = config["csv_url"]
@@ -380,6 +417,9 @@ def _try_fallback_source(
                     "source": "csv_url (fallback)",
                 },
                 data_lineage=config.get("data_lineage", "") + " [loaded via CSV fallback]",
+                is_proxy=bool(config.get("is_proxy", False)),
+                proxy_for=config.get("proxy_for"),
+                canonical_series_id=_canonical_series_id(key, config),
             )
     return None
 
@@ -416,6 +456,9 @@ def commodity_data_audit(data: CommodityData, project_root: Path) -> dict[str, A
         "source_url": source_url,
         "source_type": data.source_type,
         "data_lineage": data.data_lineage,
+        "is_proxy_series": data.is_proxy,
+        "proxy_for": data.proxy_for,
+        "canonical_series_id": data.canonical_series_id,
         **metadata,
         "row_count": len(data.rows),
         "date_range": {
@@ -432,7 +475,7 @@ def commodity_data_audit(data: CommodityData, project_root: Path) -> dict[str, A
     }
 
 
-def list_commodities() -> list[dict[str, str]]:
+def list_commodities() -> list[dict[str, Any]]:
     """Return a summary list of all configured commodities."""
     return [
         {
@@ -440,7 +483,13 @@ def list_commodities() -> list[dict[str, str]]:
             "name": cfg["name"],
             "type": cfg["type"],
             "region": cfg["region"],
+            "is_proxy": bool(cfg.get("is_proxy", False)),
             "description": cfg["description"],
         }
         for key, cfg in COMMODITIES.items()
     ]
+
+
+def list_commodities_by_type(category: str) -> list[dict[str, Any]]:
+    category_norm = category.strip().lower()
+    return [item for item in list_commodities() if item["type"] == category_norm]

@@ -6,7 +6,7 @@ import json
 import math
 import statistics
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
@@ -34,6 +34,11 @@ SEASONALITY_FEATURE_NAMES = [
     "is_heating_season",  # Nov–Mar (Northern Hemisphere winter demand)
     "is_cooling_season",  # Jun–Sep (summer cooling demand peak)
 ]
+
+AVAILABLE_MODELS = {
+    "ridge": "Ridge regression baseline",
+    "naive": "Naive persistence baseline (next price = current price)",
+}
 
 # Legacy alias — keeps existing code that imports FEATURE_NAMES working
 FEATURE_NAMES = BASE_FEATURE_NAMES
@@ -139,10 +144,23 @@ def build_seasonality_features(date_str: str) -> list[float]:
     return [float(month), float(quarter), float(day_of_week), is_heating, is_cooling]
 
 
+def _next_calendar_date(date_str: str) -> str:
+    dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+    return (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _context_feature_names(context_feature_series: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for category in context_feature_series:
+        names.extend([f"{category}_lag_1", f"{category}_mean_3"])
+    return names
+
+
 def build_samples(
     rows: list[PriceRow],
     use_seasonality: bool = False,
     external_feature_sets: list[Any] | None = None,
+    context_feature_series: dict[str, Any] | None = None,
 ) -> tuple[list[Sample], list[str]]:
     """Build feature samples from a price series.
 
@@ -154,6 +172,7 @@ def build_samples(
     Returns:
         (samples, feature_names)
     """
+    from .context_features import build_context_features
     from .external_features import enrich_features
 
     base_names = list(BASE_FEATURE_NAMES)
@@ -163,6 +182,9 @@ def build_samples(
     pre_external_names = base_names + seasonal_names
 
     feature_names = pre_external_names[:]
+    context_series = context_feature_series or {}
+    for category, series in context_series.items():
+        feature_names += [f"{category}_lag_1", f"{category}_mean_3"]
     ext_sets = external_feature_sets or []
     for fs in ext_sets:
         feature_names = feature_names + list(fs.feature_names)
@@ -174,6 +196,8 @@ def build_samples(
         combined = list(base_feats)
         if use_seasonality:
             combined = combined + build_seasonality_features(rows[index].date)
+        for category, series in context_series.items():
+            combined += build_context_features(rows[index].date, series)
         if ext_sets:
             combined, _ = enrich_features(rows[index].date, combined, pre_external_names, ext_sets)
         samples.append(
@@ -244,22 +268,39 @@ def fit_ridge_regression(train_samples: list[Sample], alpha: float = 1.0) -> lis
     return solve_linear_system(gram_matrix, target_vector)
 
 
-def predict(weights: list[float], features: list[float]) -> float:
+def predict_ridge(weights: list[float], features: list[float]) -> float:
     return weights[0] + sum(weight * value for weight, value in zip(weights[1:], features))
+
+
+def fit_model(train_samples: list[Sample], model_name: str) -> dict[str, Any]:
+    if model_name == "ridge":
+        return {"model_name": model_name, "weights": fit_ridge_regression(train_samples, alpha=1.0)}
+    if model_name == "naive":
+        return {"model_name": model_name}
+    raise ValueError(f"Unsupported model '{model_name}'. Available models: {', '.join(sorted(AVAILABLE_MODELS))}")
+
+
+def predict_model(model_state: dict[str, Any], current_price: float, features: list[float]) -> float:
+    model_name = model_state["model_name"]
+    if model_name == "ridge":
+        return predict_ridge(model_state["weights"], features)
+    if model_name == "naive":
+        return current_price
+    raise ValueError(f"Unsupported model '{model_name}'.")
 
 
 def round_float(value: float, digits: int = 6) -> float:
     return round(value, digits)
 
 
-def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, float], list[dict[str, Any]]]:
+def evaluate(model_state: dict[str, Any], samples: list[Sample]) -> tuple[dict[str, float], list[dict[str, Any]]]:
     predictions: list[dict[str, Any]] = []
     absolute_errors: list[float] = []
     squared_errors: list[float] = []
     direction_hits = 0
 
     for sample in samples:
-        predicted_price = predict(weights, sample.features)
+        predicted_price = predict_model(model_state, sample.current_price, sample.features)
         absolute_error = abs(predicted_price - sample.target_price)
         squared_error = (predicted_price - sample.target_price) ** 2
         predicted_direction = 1 if predicted_price >= sample.current_price else 0
@@ -287,11 +328,11 @@ def evaluate(weights: list[float], samples: list[Sample]) -> tuple[dict[str, flo
     return metrics, predictions
 
 
-def latest_prediction(weights: list[float], rows: list[PriceRow]) -> dict[str, Any]:
+def latest_prediction(model_state: dict[str, Any], rows: list[PriceRow]) -> dict[str, Any]:
     current_index = len(rows) - 1
     current_price = rows[current_index].price
     features = build_features(rows, current_index)
-    predicted_price = predict(weights, features)
+    predicted_price = predict_model(model_state, current_price, features)
     return {
         "latest_observation_date": rows[current_index].date,
         "latest_observation_price": round_float(current_price, 4),
@@ -398,10 +439,61 @@ def write_manual_audit(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def generate_multi_day_forecast(
+    model_state: dict[str, Any],
+    rows: list[PriceRow],
+    horizon_days: int,
+    use_seasonality: bool,
+    external_feature_sets: list[Any],
+    context_feature_series: dict[str, Any],
+) -> list[dict[str, Any]]:
+    from .context_features import build_context_features
+    from .external_features import enrich_features
+
+    working_rows = [PriceRow(date=r.date, price=r.price) for r in rows]
+    forecasts: list[dict[str, Any]] = []
+    for step in range(1, horizon_days + 1):
+        current_idx = len(working_rows) - 1
+        current_row = working_rows[current_idx]
+        feature_date = current_row.date
+        forecast_date = _next_calendar_date(current_row.date)
+        base_feats = build_features(working_rows, current_idx)
+        combined_feats = list(base_feats)
+        if use_seasonality:
+            combined_feats += build_seasonality_features(feature_date)
+        for category, series in context_feature_series.items():
+            combined_feats += build_context_features(feature_date, series)
+        if external_feature_sets:
+            pre_external_names = (
+                list(BASE_FEATURE_NAMES)
+                + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
+                + _context_feature_names(context_feature_series)
+            )
+            combined_feats, _ = enrich_features(
+                feature_date, combined_feats, pre_external_names, external_feature_sets
+            )
+        predicted_price = predict_model(model_state, current_row.price, combined_feats)
+        forecasts.append(
+            {
+                "step_day": step,
+                "forecast_date": forecast_date,
+                "predicted_price": round_float(predicted_price, 4),
+                "predicted_direction_up_vs_previous_day": bool(predicted_price >= current_row.price),
+            }
+        )
+        working_rows.append(PriceRow(date=forecast_date, price=float(predicted_price)))
+    return forecasts
+
+
 def run_pipeline(
     project_root: Path,
     commodity: str = "brent",
     features: str = "base",
+    model_name: str = "ridge",
+    horizon_days: int = 1,
+    allow_demo_fallback: bool = False,
+    category: str | None = None,
+    context_data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Run the full OilEnergy forecasting pipeline.
 
@@ -412,6 +504,8 @@ def run_pipeline(
         features: Comma-separated feature flags:
                   "base"        — price lags and rolling statistics only (default)
                   "seasonality" — add calendar/seasonal features
+                  "weather"     — add weather context features from local CSV input
+                  "demand"      — add local/regional demand context features from local CSV input
                   "external"    — add correlated commodity cross-features
                   "all"         — enable all feature groups
 
@@ -419,20 +513,71 @@ def run_pipeline(
         dict containing dataset_audit, model_audit, correlation_audit (if external),
         and interpretation (LLM summary).
     """
-    from .commodities import load_commodity, commodity_data_audit, COMMODITIES
+    from .commodities import (
+        COMMODITIES,
+        commodity_data_audit,
+        list_commodities_by_type,
+        load_commodity,
+    )
+    from .context_features import build_context_features, load_context_series
+    from .external_features import enrich_features
     from .llm_interpreter import interpret_results
 
     feature_flags = {f.strip().lower() for f in features.split(",")}
-    use_seasonality = "seasonality" in feature_flags or "all" in feature_flags
-    use_external = "external" in feature_flags or "all" in feature_flags
+    if "all" in feature_flags:
+        feature_flags |= {"base", "seasonality", "external", "weather", "demand"}
+    use_seasonality = "seasonality" in feature_flags
+    use_external = "external" in feature_flags
+    use_weather = "weather" in feature_flags
+    use_demand = "demand" in feature_flags
+
+    if horizon_days < 1 or horizon_days > 30:
+        raise ValueError("horizon_days must be between 1 and 30.")
+    if model_name not in AVAILABLE_MODELS:
+        raise ValueError(
+            f"Unsupported model '{model_name}'. Available models: {', '.join(sorted(AVAILABLE_MODELS))}"
+        )
+    commodity = commodity.strip().lower()
+    if category:
+        category_norm = category.strip().lower()
+        if category_norm not in {"oil", "gas"}:
+            raise ValueError("category must be either 'oil' or 'gas'.")
+        if commodity not in COMMODITIES:
+            category_options = list_commodities_by_type(category_norm)
+            if not category_options:
+                raise ValueError(f"No commodities configured for category '{category_norm}'.")
+            commodity = category_options[0]["key"]
+        elif COMMODITIES[commodity]["type"] != category_norm:
+            raise ValueError(
+                f"Commodity '{commodity}' is type '{COMMODITIES[commodity]['type']}', not '{category_norm}'."
+            )
 
     artifacts_dir = project_root / "artifacts"
     audits_dir = project_root / "audits"
     cache_dir = project_root / "data" / "raw"
 
     # Load primary commodity
-    commodity_data = load_commodity(commodity, cache_dir=cache_dir)
+    commodity_data = load_commodity(
+        commodity, cache_dir=cache_dir, allow_demo_fallback=allow_demo_fallback
+    )
     rows = commodity_data.rows
+
+    contextual_feature_availability: dict[str, Any] = {}
+    context_feature_series: dict[str, Any] = {}
+    if use_weather:
+        weather_series, weather_availability = load_context_series(
+            "weather", project_root, context_data_dir=context_data_dir
+        )
+        contextual_feature_availability["weather"] = weather_availability
+        if weather_series:
+            context_feature_series["weather"] = weather_series
+    if use_demand:
+        demand_series, demand_availability = load_context_series(
+            "demand", project_root, context_data_dir=context_data_dir
+        )
+        contextual_feature_availability["demand"] = demand_availability
+        if demand_series:
+            context_feature_series["demand"] = demand_series
 
     # Build correlation matrix and external feature sets if requested
     external_feature_sets: list[Any] = []
@@ -445,7 +590,10 @@ def run_pipeline(
         all_keys = [k for k in COMMODITIES if k != commodity]
         correlation_threshold = 0.5
         matrix, corr_errors = compute_correlation_matrix(
-            [commodity] + all_keys, cache_dir=cache_dir, threshold=correlation_threshold
+            [commodity] + all_keys,
+            cache_dir=cache_dir,
+            threshold=correlation_threshold,
+            allow_demo_fallback=allow_demo_fallback,
         )
         partners = significant_partners(commodity, matrix)
         correlation_audit = correlation_matrix_to_dict(matrix, [commodity] + all_keys, threshold=correlation_threshold)
@@ -454,7 +602,7 @@ def run_pipeline(
 
         if partners:
             external_feature_sets, ext_errors = load_external_feature_sets(
-                partners, cache_dir=cache_dir
+                partners, cache_dir=cache_dir, allow_demo_fallback=allow_demo_fallback
             )
             correlation_audit["external_feature_load_errors"] = ext_errors
 
@@ -462,51 +610,84 @@ def run_pipeline(
         rows,
         use_seasonality=use_seasonality,
         external_feature_sets=external_feature_sets if use_external else None,
+        context_feature_series=context_feature_series,
     )
     train_samples, test_samples = split_samples(samples)
 
-    weights = fit_ridge_regression(train_samples, alpha=1.0)
-    test_metrics, predictions = evaluate(weights, test_samples)
+    model_state = fit_model(train_samples, model_name=model_name)
+    test_metrics, predictions = evaluate(model_state, test_samples)
 
     # Latest prediction
     current_index = len(rows) - 1
     current_price = rows[current_index].price
     base_feats = build_features(rows, current_index)
     combined_feats = list(base_feats)
+    feature_date = rows[current_index].date
     if use_seasonality:
-        combined_feats = combined_feats + build_seasonality_features(rows[current_index].date)
+        combined_feats = combined_feats + build_seasonality_features(feature_date)
+    for context_category, context_series in context_feature_series.items():
+        combined_feats += build_context_features(feature_date, context_series)
     if use_external and external_feature_sets:
-        from .external_features import enrich_features
-        # Build the pre-external portion of feature_names explicitly to avoid ambiguous slicing
-        pre_external_names = list(BASE_FEATURE_NAMES) + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
-        combined_feats, _ = enrich_features(
-            rows[current_index].date, combined_feats, pre_external_names, external_feature_sets
+        pre_external_names = (
+            list(BASE_FEATURE_NAMES)
+            + (list(SEASONALITY_FEATURE_NAMES) if use_seasonality else [])
+            + _context_feature_names(context_feature_series)
         )
-    predicted_price = predict(weights, combined_feats)
+        combined_feats, _ = enrich_features(
+            feature_date, combined_feats, pre_external_names, external_feature_sets
+        )
+    predicted_price = predict_model(model_state, current_price, combined_feats)
     prediction_summary = {
         "latest_observation_date": rows[current_index].date,
         "latest_observation_price": round_float(current_price, 4),
         "predicted_next_price": round_float(predicted_price, 4),
         "predicted_direction_up": bool(predicted_price >= current_price),
     }
+    multi_day_forecast = generate_multi_day_forecast(
+        model_state=model_state,
+        rows=rows,
+        horizon_days=horizon_days,
+        use_seasonality=use_seasonality,
+        external_feature_sets=external_feature_sets if use_external else [],
+        context_feature_series=context_feature_series,
+    )
 
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
     commodity_name = COMMODITIES.get(commodity, {}).get("name", commodity)
 
+    coefficients: dict[str, float] = {}
+    if model_name == "ridge":
+        weights = model_state["weights"]
+        coefficients = {
+            "intercept": round_float(weights[0]),
+            **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
+        }
+
     model_audit_content = {
         "commodity": commodity,
         "commodity_name": commodity_name,
+        "commodity_type": COMMODITIES.get(commodity, {}).get("type"),
+        "is_proxy_commodity": bool(COMMODITIES.get(commodity, {}).get("is_proxy", False)),
+        "proxy_for": COMMODITIES.get(commodity, {}).get("proxy_for"),
         "trained_at": utc_now(),
+        "model_name": model_name,
+        "horizon_days": horizon_days,
+        "forecast_method": "recursive multi-step forecast",
+        "forecast_limitations": (
+            "Recursive forecasting compounds model error with each step. "
+            "Future exogenous features (weather/demand/external prices) use latest known values when future dates are unavailable."
+        ),
         "feature_flags": features,
         "feature_names": feature_names,
-        "coefficients": {
-            "intercept": round_float(weights[0]),
-            **{name: round_float(weight) for name, weight in zip(feature_names, weights[1:])},
-        },
+        "coefficients": coefficients,
         "train_sample_count": len(train_samples),
         "test_sample_count": len(test_samples),
         "test_metrics": test_metrics,
         "latest_prediction": prediction_summary,
+        "multi_day_forecast": multi_day_forecast,
+        "contextual_feature_availability": contextual_feature_availability,
+        "external_feature_partners": [fs.commodity_key for fs in external_feature_sets],
+        "allow_demo_fallback": allow_demo_fallback,
     }
 
     # LLM interpretation

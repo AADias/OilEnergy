@@ -7,6 +7,7 @@ These features supplement the base time-series features in pipeline.py.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from bisect import bisect_right
 from pathlib import Path
 from typing import Any
 
@@ -46,10 +47,13 @@ def build_external_features(
     """
     # Build sorted date list once per call (or caller caches)
     date_index = {d: i for i, d in enumerate(all_dates)}
-    if date not in date_index:
-        return [0.0, 0.0]
-
-    idx = date_index[date]
+    if date in date_index:
+        idx = date_index[date]
+    else:
+        insert_at = bisect_right(all_dates, date)
+        idx = insert_at - 1
+        if idx < 0:
+            return [0.0, 0.0]
 
     def _price_at(offset: int) -> float | None:
         i = idx - offset
@@ -72,6 +76,7 @@ def build_external_features(
 def load_external_feature_sets(
     commodity_keys: list[str],
     cache_dir: Path | None = None,
+    allow_demo_fallback: bool = False,
 ) -> tuple[list[ExternalFeatureSet], list[str]]:
     """Load price data for each commodity key and build ExternalFeatureSet objects.
 
@@ -84,7 +89,14 @@ def load_external_feature_sets(
 
     for key in commodity_keys:
         try:
-            data: CommodityData = load_commodity(key, cache_dir=cache_dir)
+            data: CommodityData = load_commodity(
+                key, cache_dir=cache_dir, allow_demo_fallback=allow_demo_fallback
+            )
+            if data.source_type == "brent_fallback":
+                errors.append(
+                    f"{key}: excluded from model features because demo Brent fallback was used."
+                )
+                continue
             price_map = {row.date: row.price for row in data.rows}
             feature_sets.append(
                 ExternalFeatureSet(

@@ -103,7 +103,9 @@ than today, using only publicly available gas price data?*
 
 1. **Data:** Henry Hub spot price (FRED DHHNGSP) as Qatar LNG proxy
 2. **Features:** 9 time-series lags + 5 seasonality features (month, quarter,
-   day-of-week, heating season indicator, cooling season indicator)
+   day-of-week, heating season indicator, cooling season indicator), with optional
+   weather and regional demand context loaded from auditable local CSV inputs
+   (`data/context/weather.csv`, `data/context/demand.csv`)
 3. **Model:** Ridge regression (alpha=1.0)
 4. **Evaluation:** 80/20 time-ordered train/test split
 
