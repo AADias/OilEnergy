@@ -100,7 +100,6 @@ class TestLiveRefreshUpdatesCache(unittest.TestCase):
             _write_cache(cache_dir, "brent", stale_rows)
 
             # Mock the network call to return fresher data
-            fresh_rows_csv = _make_fred_csv([("2026-08-10", "90.0"), ("2026-08-11", "91.0")])
             legacy_csv_content = b"Date,Price\n2026-08-10,90.0\n2026-08-11,91.0\n"
 
             with patch("oilenergy.commodities._fetch_url", return_value=legacy_csv_content):

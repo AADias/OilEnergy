@@ -286,17 +286,17 @@ def load_commodity(
             errors.append(f"primary ({config.get('primary_source', '?')}): {exc}")
 
         # Fallback source (FRED↔CSV swap)
-        if errors:
-            try:
-                result = _try_fallback_source(commodity_key, config, cache_path, meta_path, errors)
-                if result:
+        try:
+            result = _try_fallback_source(commodity_key, config, cache_path, meta_path, errors)
+            if result:
+                if errors:
                     refresh_warning = (
                         f"Primary source failed ({errors[0]}); loaded from fallback source."
                     )
                     result.refresh_warning = refresh_warning
-                    return result
-            except Exception as exc:
-                errors.append(f"fallback: {exc}")
+                return result
+        except Exception as exc:
+            errors.append(f"fallback: {exc}")
 
     # ------------------------------------------------------------------
     # VALIDATED CACHE FALLBACK
