@@ -346,8 +346,9 @@ def recursive_forecast(
         model:      "ridge" or "naive".
 
     Returns:
-        List of dicts with keys: step, forecast_date (calendar), predicted_price,
-        predicted_direction_up, method, carry_forward_disclosure.
+        List of dicts with keys: step, forecast_date/date (calendar),
+        predicted_price, predicted_direction_up, method,
+        carry_forward_disclosure.
     """
     from datetime import date as date_cls, timedelta
     import datetime as dt_module
@@ -756,7 +757,7 @@ def run_pipeline(
                 "carry_forward_disclosure": "Single-step forecast. Forecast date is a calendar day and may not be a trading day.",
             }
         ]
-    prediction_summary["forecast_date"] = forecast[0].get("forecast_date") or forecast[0].get("date")
+    prediction_summary["forecast_date"] = forecast[0]["forecast_date"]
 
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
     commodity_name = COMMODITIES.get(commodity, {}).get("name", commodity)
