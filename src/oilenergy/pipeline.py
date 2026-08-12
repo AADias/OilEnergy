@@ -346,7 +346,7 @@ def recursive_forecast(
         model:      "ridge" or "naive".
 
     Returns:
-        List of dicts with keys: step, date (calendar), predicted_price,
+        List of dicts with keys: step, forecast_date (calendar), predicted_price,
         predicted_direction_up, method, carry_forward_disclosure.
     """
     from datetime import date as date_cls, timedelta
@@ -390,6 +390,7 @@ def recursive_forecast(
         results.append(
             {
                 "step": step,
+                "forecast_date": forecast_date,
                 "date": forecast_date,
                 "date_type": "calendar_day",
                 "predicted_price": round_float(predicted_price, 4),
@@ -581,8 +582,8 @@ def run_pipeline(
     from .commodities import load_commodity, commodity_data_audit, COMMODITIES
     from .llm_interpreter import interpret_results
 
-    if horizon_days < 1:
-        raise ValueError("horizon_days must be >= 1")
+    if horizon_days < 1 or horizon_days > 30:
+        raise ValueError("horizon_days must be between 1 and 30")
     if model not in ("ridge", "naive"):
         raise ValueError(f"Unknown model '{model}'. Choose 'ridge' or 'naive'.")
 
@@ -722,6 +723,7 @@ def run_pipeline(
         "latest_observation_price": round_float(current_price, 4),
         "predicted_next_price": round_float(predicted_price, 4),
         "predicted_direction_up": bool(predicted_price >= current_price),
+        "date_type": "calendar_day",
     }
 
     # --- Multi-day recursive forecast ---
@@ -745,6 +747,7 @@ def run_pipeline(
         forecast = [
             {
                 "step": 1,
+                "forecast_date": _next_date,
                 "date": _next_date,
                 "date_type": "calendar_day",
                 "predicted_price": prediction_summary["predicted_next_price"],
@@ -753,6 +756,7 @@ def run_pipeline(
                 "carry_forward_disclosure": "Single-step forecast. Forecast date is a calendar day and may not be a trading day.",
             }
         ]
+    prediction_summary["forecast_date"] = forecast[0].get("forecast_date") or forecast[0].get("date")
 
     dataset_audit_content = commodity_data_audit(commodity_data, project_root)
     commodity_name = COMMODITIES.get(commodity, {}).get("name", commodity)

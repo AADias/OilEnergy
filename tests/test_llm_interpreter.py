@@ -92,6 +92,17 @@ class TestTemplateMultiDaySummary(unittest.TestCase):
         self.assertIn("recursive carry-forward", summary)
         self.assertIn("calendar days", summary)
 
+    def test_multi_day_section_accepts_pipeline_date_key_shape(self) -> None:
+        forecast = [
+            {"step": 1, "date": "2026-08-04", "predicted_price": 88.9001},
+            {"step": 5, "date": "2026-08-08", "predicted_price": 88.7823},
+        ]
+        audit = _make_audit(horizon_days=5, forecast=forecast)
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("2026-08-04 → 88.9001", summary)
+        self.assertIn("2026-08-08 → 88.7823", summary)
+        self.assertNotIn("):  →", summary)
+
     def test_disclaimer_always_present(self) -> None:
         for h in (1, 5):
             with self.subTest(horizon=h):
