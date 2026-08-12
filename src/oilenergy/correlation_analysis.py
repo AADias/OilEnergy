@@ -82,6 +82,7 @@ def compute_correlation_matrix(
     commodity_keys: list[str],
     cache_dir: Path | None = None,
     threshold: float = 0.5,
+    offline: bool = False,
 ) -> tuple[dict[tuple[str, str], CorrelationResult], list[str]]:
     """Compute pairwise correlations for a list of commodity keys.
 
@@ -94,7 +95,7 @@ def compute_correlation_matrix(
 
     for key in commodity_keys:
         try:
-            loaded[key] = load_commodity(key, cache_dir=cache_dir)
+            loaded[key] = load_commodity(key, cache_dir=cache_dir, offline=offline)
         except Exception as exc:
             errors.append(f"{key}: {exc}")
 

@@ -11,6 +11,9 @@ if str(_src) not in sys.path:
 from oilenergy import run_pipeline
 from oilenergy.commodities import list_commodities
 
+# Conservative stale-data default: warn at 7 days, allow user to enforce failure.
+DEFAULT_MAX_STALENESS_DAYS = 7
+
 
 def _horizon_days_arg(value: str) -> int:
     days = int(value)
@@ -25,8 +28,14 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Brent crude oil, base features (backwards-compatible default)
+  # Brent crude oil, base features — live refresh (default)
   python scripts\\train_model.py
+
+  # Offline mode: use validated local cache only, no network access
+  python scripts\\train_model.py --offline
+
+  # Fail if data is more than 3 days stale
+  python scripts\\train_model.py --max-staleness-days 3
 
   # Qatar LNG with seasonality features
   python scripts\\train_model.py --commodity qatar_lng --features seasonality
@@ -88,6 +97,29 @@ Examples:
         help="Optional category filter label (oil or gas) — for auditing/display only.",
     )
     parser.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "Offline mode: skip network access and use only the local validated cache. "
+            "The cache must exist and carry a matching .cache_meta.json sidecar. "
+            "Use this when network access is unavailable or unwanted. "
+            "Data may be stale; staleness is reported explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--max-staleness-days",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            f"Fail with a non-zero exit code if the latest observation in the loaded "
+            f"dataset is more than N calendar days old relative to today. "
+            f"Default: warn at {DEFAULT_MAX_STALENESS_DAYS} days but do not fail. "
+            "Set to 0 to require same-day data. "
+            "Note: upstream publication schedules mean same-day data is not always available."
+        ),
+    )
+    parser.add_argument(
         "--list-commodities",
         action="store_true",
         help="Print all available commodities and exit.",
@@ -115,19 +147,51 @@ if __name__ == "__main__":
         model=args.model,
         horizon_days=args.horizon_days,
         category=args.category,
+        offline=args.offline,
     )
 
     ma = result["model_audit"]
+    da = result["dataset_audit"]
     print("Commodity:", ma.get("commodity_name", args.commodity))
     print("Category:", ma.get("category", "unknown"))
     print("Model:", ma.get("model", "ridge"))
     print("Feature flags:", ma.get("feature_flags", "base"))
-    print("Dataset rows:", result["dataset_audit"]["row_count"])
+
+    # --- Data freshness block ---
+    source_mode = da.get("source_mode", "unknown")
+    retrieved_at = da.get("retrieved_at", "")
+    latest_obs = da.get("latest_obs_date", da.get("date_range", {}).get("end", ""))
+    staleness = da.get("staleness_days", -1)
+    refresh_warning = da.get("refresh_warning", "")
+
+    print(f"Data source: {da.get('source_type', 'unknown')} ({source_mode})")
+    if retrieved_at:
+        print(f"Retrieved at: {retrieved_at}")
+    print(f"Latest observation: {latest_obs}")
+    if staleness >= 0:
+        stale_label = f"{staleness} calendar day(s) old"
+        warn_threshold = DEFAULT_MAX_STALENESS_DAYS
+        if staleness >= warn_threshold:
+            stale_label += f"  *** DATA IS STALE (>{warn_threshold} days) ***"
+        print(f"Staleness: {stale_label}")
+    if refresh_warning:
+        print(f"[WARNING] {refresh_warning}", file=sys.stderr)
+
+    # Enforce --max-staleness-days failure
+    if args.max_staleness_days is not None and staleness >= 0 and staleness > args.max_staleness_days:
+        print(
+            f"[ERROR] Data is {staleness} calendar day(s) old, which exceeds "
+            f"--max-staleness-days {args.max_staleness_days}. Aborting.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    print("Dataset rows:", da.get("row_count", result.get("row_count", "?")))
     print(
         "Dataset date range:",
-        result["dataset_audit"]["date_range"]["start"],
+        da.get("date_range", {}).get("start", ""),
         "to",
-        result["dataset_audit"]["date_range"]["end"],
+        da.get("date_range", {}).get("end", ""),
     )
     print("Test MAE:", ma["test_metrics"]["mae"])
     print("Test RMSE:", ma["test_metrics"]["rmse"])
