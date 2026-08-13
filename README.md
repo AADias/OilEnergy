@@ -17,10 +17,16 @@ third-party dependencies for the core CLI.
 git clone https://github.com/AADias/OilEnergy.git
 cd OilEnergy
 
-:: Brent crude oil — default run (no PYTHONPATH needed from repo root)
+:: Brent crude oil — live refresh (default; fetches latest data before forecasting)
 python scripts\train_model.py
 
-:: Qatar LNG with seasonality features
+:: Offline mode — use validated local cache only, no network access
+python scripts\train_model.py --offline
+
+:: Fail if data is more than 3 calendar days old
+python scripts\train_model.py --max-staleness-days 3
+
+:: Qatar LNG with seasonality features (live refresh, proxy labelled)
 python scripts\train_model.py --commodity qatar_lng --features seasonality
 
 :: 7-day recursive calendar forecast, naive persistence baseline
@@ -40,6 +46,7 @@ python scripts\train_model.py --list-commodities
 
 ```bash
 PYTHONPATH=src python3 scripts/train_model.py
+PYTHONPATH=src python3 scripts/train_model.py --offline
 PYTHONPATH=src python3 scripts/train_model.py --commodity qatar_lng --features seasonality
 ```
 
@@ -69,12 +76,19 @@ See [`config/commodities.yaml`](config/commodities.yaml) to add your own sources
 ```
 python scripts\train_model.py [options]
 
-  --commodity KEY         Commodity to forecast (default: brent)
-  --features FLAGS        Comma-separated feature groups (default: base)
-  --model MODEL           ridge (default) or naive (persistence baseline)
-  --horizon-days N        Calendar days to forecast ahead, 1-30 (default: 1)
-  --category {oil,gas}    Category label for auditing/display (optional)
-  --list-commodities      Print available commodities and exit
+  --commodity KEY            Commodity to forecast (default: brent)
+  --features FLAGS           Comma-separated feature groups (default: base)
+  --model MODEL              ridge (default) or naive (persistence baseline)
+  --horizon-days N           Calendar days to forecast ahead, 1-30 (default: 1)
+  --category {oil,gas}       Category label for auditing/display (optional)
+  --offline                  Skip network access; use only validated local cache.
+                             Fails clearly if no valid cache exists.
+  --max-staleness-days N     Fail with exit code 2 if the latest observation is
+                             more than N calendar days old. Default: warn at 7 days
+                             but do not fail. Use 0 to require same-day data.
+                             Note: upstream publication schedules mean same-day
+                             data is not always available from FRED or GitHub.
+  --list-commodities         Print available commodities and exit
 ```
 
 ### Feature Flags
@@ -91,6 +105,71 @@ python scripts\train_model.py [options]
 > data source (e.g. `qatar_lng` and `henry_hub` both use FRED/DHHNGSP) are
 > automatically excluded from external feature sets to prevent spurious
 > near-1.0 correlations from contaminating the model.
+
+---
+
+## Data Freshness and Staleness Policy
+
+Every run reports:
+
+| Output field         | Meaning |
+|----------------------|---------|
+| `Data source`        | Provider and mode (`live`, `cache`, `demo`, `proxy`, `unavailable`) |
+| `Retrieved at`       | UTC timestamp of the data retrieval |
+| `Latest observation` | Date of the last observation in the loaded dataset |
+| `Staleness`          | Calendar days between the latest observation and today |
+
+**Default behaviour (live refresh):**
+- The CLI attempts a live refresh from the declared source (FRED or CSV URL)
+  before forecasting. If the refresh succeeds, `source_mode=live` is reported.
+- If the refresh fails, the CLI falls back to the most recent validated local
+  cache and reports `source_mode=cache` with a prominent `[STALE DATA]` warning
+  including the refresh error and the data age.
+- If no valid cache exists, the run fails with a clear error message.
+
+**Conservative stale-data policy:**
+- A warning is printed for data ≥ **7 calendar days** old regardless of whether
+  the weekend or a public holiday explains the gap.
+- Use `--max-staleness-days N` to enforce a hard failure for data older than N
+  days (exit code 2). Setting `--max-staleness-days 3` is recommended for
+  production use.
+- The CLI never claims data is current when it is not. Availability follows the
+  upstream publication schedule; FRED daily series are typically published 1–2
+  business days behind.
+
+**Offline mode (`--offline`):**
+- Skips all network access. Uses only the validated local cache (`.cache_meta.json`
+  sidecar required). Fails clearly if no valid cache exists.
+
+**Cache integrity:**
+- Every cached CSV is accompanied by a `.cache_meta.json` sidecar that records
+  the commodity key, canonical series ID, source type, and retrieval timestamp.
+- On read the sidecar is validated. A cache with a missing or mismatched sidecar
+  is rejected — it will never silently serve a different commodity.
+- This specifically prevents Brent (`DCOILBRENTEU`) data from being served for
+  Qatar LNG (`DHHNGSP`), which was observed as a contamination issue on
+  2026-08-12.
+
+---
+
+## Qatar LNG Proxy Provenance
+
+Qatar LNG (`qatar_lng`) uses **FRED series DHHNGSP** (Henry Hub) as a
+directional proxy because official QatarEnergy pricing is not publicly
+available in machine-readable form.
+
+**Identity guarantee:** The `qatar_lng` loader always fetches and caches data
+under the `DHHNGSP` series identifier. It will never silently fall back to
+Brent (`DCOILBRENTEU`) or any other series. If `DHHNGSP` is unreachable and no
+valid `qatar_lng` cache exists, the run fails with a clear error rather than
+substituting unrelated data.
+
+**Correlation exclusion:** `qatar_lng` and `henry_hub` share the same
+underlying series and are automatically excluded from each other's external
+feature sets to prevent spurious near-1.0 correlations.
+
+For production use, replace `DHHNGSP` with contracted QatarEnergy pricing data.
+See [`docs/MIDDLE_EAST_FOCUS.md`](docs/MIDDLE_EAST_FOCUS.md) for more.
 
 ---
 

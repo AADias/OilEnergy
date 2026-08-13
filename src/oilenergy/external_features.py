@@ -72,6 +72,7 @@ def build_external_features(
 def load_external_feature_sets(
     commodity_keys: list[str],
     cache_dir: Path | None = None,
+    offline: bool = False,
 ) -> tuple[list[ExternalFeatureSet], list[str]]:
     """Load price data for each commodity key and build ExternalFeatureSet objects.
 
@@ -84,7 +85,7 @@ def load_external_feature_sets(
 
     for key in commodity_keys:
         try:
-            data: CommodityData = load_commodity(key, cache_dir=cache_dir)
+            data: CommodityData = load_commodity(key, cache_dir=cache_dir, offline=offline)
             price_map = {row.date: row.price for row in data.rows}
             feature_sets.append(
                 ExternalFeatureSet(

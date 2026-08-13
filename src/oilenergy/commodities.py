@@ -1,8 +1,21 @@
 """commodities.py — Commodity definitions and data loading for the OilEnergy pipeline.
 
 Supports multiple energy commodities (oil, gas) with a focus on Qatar and the
-Middle East energy sector. Data sources are tried in priority order: FRED,
-Yahoo Finance, direct CSV URL.
+Middle East energy sector.
+
+Data freshness policy
+---------------------
+By default the loader attempts a **live refresh** from the declared source before
+falling back to a validated cache.  Pass ``offline=True`` to skip network access
+and use the cache only.
+
+Cache integrity
+---------------
+Every cached CSV is accompanied by a JSON sidecar (``<key>.cache_meta.json``)
+that records the commodity key, canonical series ID, source type, retrieval
+timestamp, and proxy/demo flags.  On read the sidecar is validated; any legacy
+cache without a matching sidecar, or with a mismatched key/series, is rejected
+and will **not** silently serve a different commodity.
 
 Data lineage is documented for every commodity so users can verify the source
 of each price series.
@@ -12,9 +25,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import os
+import sys
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.request import urlopen, Request
@@ -132,10 +145,55 @@ class CommodityData:
     commodity_key: str
     commodity_name: str
     source_url: str
-    source_type: str  # "fred" | "csv" | "cache"
+    source_type: str  # "fred" | "csv" | "cache" | "demo" | "proxy"
     rows: list[PriceRow] = field(default_factory=list)
     download_metadata: dict[str, Any] = field(default_factory=dict)
     data_lineage: str = ""
+    # Freshness fields
+    source_mode: str = "unknown"      # "live" | "cache" | "demo" | "proxy" | "unavailable"
+    retrieved_at: str = ""            # ISO-8601 UTC timestamp of the data retrieval
+    latest_obs_date: str = ""         # Date of the last observation in the series (YYYY-MM-DD)
+    staleness_days: int = -1          # Calendar days between latest_obs_date and today
+    refresh_warning: str = ""         # Non-empty when refresh failed or data is stale
+
+
+def _compute_staleness(latest_date_str: str) -> int:
+    """Return calendar days between *latest_date_str* (YYYY-MM-DD) and today (UTC).
+
+    Returns -1 if the date cannot be parsed.
+    """
+    try:
+        latest = _date.fromisoformat(latest_date_str[:10])
+        today = datetime.now(timezone.utc).date()
+        return (today - latest).days
+    except (ValueError, TypeError):
+        return -1
+
+
+def _load_cache_meta(meta_path: Path) -> Optional[dict[str, Any]]:
+    """Load a JSON sidecar file; return None if missing or unreadable."""
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_cache_meta(meta_path: Path, meta: dict[str, Any]) -> None:
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def _validate_cache_meta(meta: Optional[dict[str, Any]], commodity_key: str, config: dict[str, Any]) -> Optional[str]:
+    """Return an error string if the metadata does not match the expected commodity, else None."""
+    if meta is None:
+        return "no sidecar metadata (legacy cache)"
+    stored_key = meta.get("commodity_key")
+    stored_series = meta.get("canonical_series_id")
+    expected_series = config.get("fred_series") or config.get("csv_url", "")
+    if stored_key != commodity_key:
+        return f"key mismatch: cache has '{stored_key}', expected '{commodity_key}'"
+    if stored_series and expected_series and stored_series != expected_series:
+        return f"series mismatch: cache has '{stored_series}', expected '{expected_series}'"
+    return None
 
 
 def fetch_fred_series(series_id: str) -> tuple[bytes, str]:
@@ -178,13 +236,30 @@ def parse_legacy_csv(content: bytes, date_col: str, price_col: str) -> list[Pric
 def load_commodity(
     commodity_key: str,
     cache_dir: Optional[Path] = None,
+    offline: bool = False,
 ) -> CommodityData:
     """Load price data for a named commodity.
 
-    Tries sources in priority order:
-      1. Cache on disk (if cache_dir provided and file exists)
-      2. Primary source (FRED or CSV URL)
-      3. Fallback between FRED / CSV as needed
+    Default behaviour (``offline=False``):
+      1. Attempt a live refresh from the declared remote source.
+      2. If the refresh fails, fall back to a **validated** cache (requires a
+         matching ``.cache_meta.json`` sidecar; legacy bare CSV files without
+         metadata are rejected for non-Brent commodities to prevent cross-
+         commodity contamination).
+      3. If no valid cache exists, raise RuntimeError with a clear message.
+
+    Offline mode (``offline=True``):
+      Skip network access entirely and use only the local cache.  If no valid
+      cache exists the call fails clearly.
+
+    Cache integrity
+    ---------------
+    Cached CSVs are accompanied by a ``<key>.cache_meta.json`` sidecar that
+    records ``commodity_key``, ``canonical_series_id``, ``source_type``,
+    ``retrieved_at``, and ``is_proxy``.  Any cache whose sidecar is absent or
+    whose key/series fields do not match the current commodity definition is
+    **rejected** — it will not be used, even as a last resort, for a different
+    commodity (specifically: Brent CSV must never be served for qatar_lng).
 
     Raises RuntimeError if all sources fail.
     """
@@ -194,112 +269,111 @@ def load_commodity(
 
     config = COMMODITIES[commodity_key]
     cache_path = (cache_dir / f"{commodity_key}.csv") if cache_dir else None
-
-    # 1. Try cache
-    if cache_path and cache_path.exists():
-        content = cache_path.read_bytes()
-        if config.get("primary_source") == "csv":
-            rows = parse_legacy_csv(content, config["date_column"], config["price_column"])
-        else:
-            rows = parse_fred_csv(content)
-        if rows:
-            return CommodityData(
-                commodity_key=commodity_key,
-                commodity_name=config["name"],
-                source_url=str(cache_path),
-                source_type="cache",
-                rows=rows,
-                download_metadata={"loaded_from_cache": str(cache_path), "loaded_at": _utc_now()},
-                data_lineage=config.get("data_lineage", ""),
-            )
+    meta_path = (cache_dir / f"{commodity_key}.cache_meta.json") if cache_dir else None
 
     errors: list[str] = []
+    refresh_warning: str = ""
 
-    # 2. Primary source
-    try:
-        result = _try_primary_source(commodity_key, config, cache_path)
-        if result:
-            return result
-    except Exception as exc:
-        errors.append(f"primary ({config.get('primary_source', '?')}): {exc}")
+    # ------------------------------------------------------------------
+    # LIVE REFRESH (unless offline mode)
+    # ------------------------------------------------------------------
+    if not offline:
+        try:
+            result = _try_primary_source(commodity_key, config, cache_path, meta_path)
+            if result:
+                return result
+        except Exception as exc:
+            errors.append(f"primary ({config.get('primary_source', '?')}): {exc}")
 
-    # 3. Fallback: if primary was FRED, try CSV; if primary was CSV, try FRED
-    try:
-        result = _try_fallback_source(commodity_key, config, cache_path, errors)
-        if result:
-            return result
-    except Exception as exc:
-        errors.append(f"fallback: {exc}")
+        # Fallback source (FRED↔CSV swap)
+        try:
+            result = _try_fallback_source(commodity_key, config, cache_path, meta_path, errors)
+            if result:
+                if errors:
+                    refresh_warning = (
+                        f"Primary source failed ({errors[0]}); loaded from fallback source."
+                    )
+                    result.refresh_warning = refresh_warning
+                return result
+        except Exception as exc:
+            errors.append(f"fallback: {exc}")
 
-    # 4. Last resort: use local brent.csv as a shape-compatible proxy (demo/offline mode)
-    try:
-        result = _try_local_brent_fallback(commodity_key, config, cache_dir)
-        if result:
-            import sys
+    # ------------------------------------------------------------------
+    # VALIDATED CACHE FALLBACK
+    # ------------------------------------------------------------------
+    if cache_path and cache_path.exists():
+        meta = _load_cache_meta(meta_path) if meta_path else None
+        meta_error = _validate_cache_meta(meta, commodity_key, config)
+        if meta_error:
+            errors.append(f"cache rejected ({meta_error})")
             print(
-                f"[WARNING] Could not reach network data sources for '{commodity_key}'. "
-                f"Using local Brent data as a demo fallback. "
-                f"Errors: {'; '.join(errors)}",
+                f"[WARNING] Cache for '{commodity_key}' rejected: {meta_error}. "
+                "Refusing to use a potentially mismatched cache.",
                 file=sys.stderr,
             )
-            return result
-    except Exception as exc:
-        errors.append(f"brent_fallback: {exc}")
+        else:
+            content = cache_path.read_bytes()
+            if config.get("primary_source") == "csv":
+                rows = parse_legacy_csv(content, config["date_column"], config["price_column"])
+            else:
+                rows = parse_fred_csv(content)
+            if rows:
+                latest = rows[-1].date
+                staleness = _compute_staleness(latest)
+                retrieved_at = (meta or {}).get("retrieved_at", _utc_now())
+                warn = (
+                    f"[STALE DATA] Using cached data (last observation: {latest}, "
+                    f"{staleness} calendar days old). "
+                    f"Refresh errors: {'; '.join(errors) or 'offline mode'}."
+                ) if errors or offline else ""
+                if warn:
+                    print(warn, file=sys.stderr)
+                return CommodityData(
+                    commodity_key=commodity_key,
+                    commodity_name=config["name"],
+                    source_url=str(cache_path),
+                    source_type="cache",
+                    rows=rows,
+                    download_metadata={
+                        "loaded_from_cache": str(cache_path),
+                        "loaded_at": _utc_now(),
+                        **(meta or {}),
+                    },
+                    data_lineage=config.get("data_lineage", ""),
+                    source_mode="cache",
+                    retrieved_at=retrieved_at,
+                    latest_obs_date=latest,
+                    staleness_days=staleness,
+                    refresh_warning=warn,
+                )
 
     raise RuntimeError(
-        f"Failed to load commodity '{commodity_key}'. Tried: {'; '.join(errors)}"
+        f"Failed to load commodity '{commodity_key}'. "
+        f"No valid cache and all remote sources failed. Tried: {'; '.join(errors) or 'offline mode, no cache'}. "
+        "Run without --offline to attempt a live refresh, or supply a valid cache."
     )
 
 
-def _try_local_brent_fallback(
-    key: str, config: dict[str, Any], cache_dir: Optional[Path]
-) -> Optional[CommodityData]:
-    """Last-resort fallback: use locally cached brent.csv as a shape-compatible proxy.
-
-    Only used when all network sources fail (e.g., offline or sandboxed environment).
-    The data lineage is updated to clearly document this substitution.
-    """
-    if cache_dir is None:
-        return None
-    for candidate in ["brent.csv", "brent-daily.csv"]:
-        candidate_path = cache_dir / candidate
-        if candidate_path.exists():
-            content = candidate_path.read_bytes()
-            rows = parse_legacy_csv(content, "Date", "Price")
-            if rows:
-                return CommodityData(
-                    commodity_key=key,
-                    commodity_name=config["name"],
-                    source_url=str(candidate_path),
-                    source_type="brent_fallback",
-                    rows=rows,
-                    download_metadata={
-                        "loaded_from_cache": str(candidate_path),
-                        "loaded_at": _utc_now(),
-                        "warning": (
-                            "All network sources unavailable. Using local Brent CSV as "
-                            "shape-compatible fallback. Price LEVELS are Brent oil, not "
-                            f"{config['name']}. Direction signals remain valid as a demo."
-                        ),
-                    },
-                    data_lineage=(
-                        config.get("data_lineage", "")
-                        + f" [FALLBACK: using local Brent CSV because {config.get('fred_series', 'FRED')} "
-                        "was unreachable. Replace with real data for production use.]"
-                    ),
-                )
-    return None
-
-
 def _try_primary_source(
-    key: str, config: dict[str, Any], cache_path: Optional[Path]
+    key: str, config: dict[str, Any], cache_path: Optional[Path], meta_path: Optional[Path]
 ) -> Optional[CommodityData]:
+    now = _utc_now()
     if config.get("primary_source") == "csv" and config.get("csv_url"):
         url = config["csv_url"]
         content = _fetch_url(url)
         rows = parse_legacy_csv(content, config["date_column"], config["price_column"])
         if rows:
+            canonical = config.get("csv_url", "")
             _save_cache(cache_path, content)
+            _save_cache_meta(meta_path, {
+                "commodity_key": key,
+                "canonical_series_id": canonical,
+                "source_type": "csv",
+                "source_url": url,
+                "retrieved_at": now,
+                "is_proxy": config.get("type") in {"proxy"},
+            }) if meta_path else None
+            latest = rows[-1].date
             return CommodityData(
                 commodity_key=key,
                 commodity_name=config["name"],
@@ -307,18 +381,34 @@ def _try_primary_source(
                 source_type="csv",
                 rows=rows,
                 download_metadata={
-                    "downloaded_at": _utc_now(),
+                    "downloaded_at": now,
                     "sha256": _sha256(content),
                     "byte_count": len(content),
                     "source": "csv_url",
+                    "canonical_series_id": canonical,
                 },
                 data_lineage=config.get("data_lineage", ""),
+                source_mode="live",
+                retrieved_at=now,
+                latest_obs_date=latest,
+                staleness_days=_compute_staleness(latest),
             )
     elif config.get("fred_series"):
         content, url = fetch_fred_series(config["fred_series"])
         rows = parse_fred_csv(content)
         if rows:
+            series_id = config["fred_series"]
             _save_cache(cache_path, content)
+            if meta_path:
+                _save_cache_meta(meta_path, {
+                    "commodity_key": key,
+                    "canonical_series_id": series_id,
+                    "source_type": "fred",
+                    "source_url": url,
+                    "retrieved_at": now,
+                    "is_proxy": key in {"qatar_lng", "opec_basket"},
+                })
+            latest = rows[-1].date
             return CommodityData(
                 commodity_key=key,
                 commodity_name=config["name"],
@@ -326,26 +416,43 @@ def _try_primary_source(
                 source_type="fred",
                 rows=rows,
                 download_metadata={
-                    "downloaded_at": _utc_now(),
+                    "downloaded_at": now,
                     "sha256": _sha256(content),
                     "byte_count": len(content),
                     "source": "FRED",
-                    "series_id": config["fred_series"],
+                    "series_id": series_id,
+                    "canonical_series_id": series_id,
                 },
                 data_lineage=config.get("data_lineage", ""),
+                source_mode="live",
+                retrieved_at=now,
+                latest_obs_date=latest,
+                staleness_days=_compute_staleness(latest),
             )
     return None
 
 
 def _try_fallback_source(
-    key: str, config: dict[str, Any], cache_path: Optional[Path], errors: list[str]
+    key: str, config: dict[str, Any], cache_path: Optional[Path], meta_path: Optional[Path], errors: list[str]
 ) -> Optional[CommodityData]:
     """Try the alternate source (FRED if primary was CSV, or CSV if primary was FRED)."""
+    now = _utc_now()
     if config.get("primary_source") == "csv" and config.get("fred_series"):
-        content, url = fetch_fred_series(config["fred_series"])
+        series_id = config["fred_series"]
+        content, url = fetch_fred_series(series_id)
         rows = parse_fred_csv(content)
         if rows:
             _save_cache(cache_path, content)
+            if meta_path:
+                _save_cache_meta(meta_path, {
+                    "commodity_key": key,
+                    "canonical_series_id": series_id,
+                    "source_type": "fred",
+                    "source_url": url,
+                    "retrieved_at": now,
+                    "is_proxy": key in {"qatar_lng", "opec_basket"},
+                })
+            latest = rows[-1].date
             return CommodityData(
                 commodity_key=key,
                 commodity_name=config["name"],
@@ -353,13 +460,18 @@ def _try_fallback_source(
                 source_type="fred",
                 rows=rows,
                 download_metadata={
-                    "downloaded_at": _utc_now(),
+                    "downloaded_at": now,
                     "sha256": _sha256(content),
                     "byte_count": len(content),
                     "source": "FRED (fallback)",
-                    "series_id": config["fred_series"],
+                    "series_id": series_id,
+                    "canonical_series_id": series_id,
                 },
                 data_lineage=config.get("data_lineage", "") + " [loaded via FRED fallback]",
+                source_mode="live",
+                retrieved_at=now,
+                latest_obs_date=latest,
+                staleness_days=_compute_staleness(latest),
             )
     elif config.get("primary_source") == "fred" and config.get("csv_url"):
         url = config["csv_url"]
@@ -367,6 +479,16 @@ def _try_fallback_source(
         rows = parse_legacy_csv(content, config["date_column"], config["price_column"])
         if rows:
             _save_cache(cache_path, content)
+            if meta_path:
+                _save_cache_meta(meta_path, {
+                    "commodity_key": key,
+                    "canonical_series_id": url,
+                    "source_type": "csv",
+                    "source_url": url,
+                    "retrieved_at": now,
+                    "is_proxy": key in {"qatar_lng", "opec_basket"},
+                })
+            latest = rows[-1].date
             return CommodityData(
                 commodity_key=key,
                 commodity_name=config["name"],
@@ -374,12 +496,17 @@ def _try_fallback_source(
                 source_type="csv",
                 rows=rows,
                 download_metadata={
-                    "downloaded_at": _utc_now(),
+                    "downloaded_at": now,
                     "sha256": _sha256(content),
                     "byte_count": len(content),
                     "source": "csv_url (fallback)",
+                    "canonical_series_id": url,
                 },
                 data_lineage=config.get("data_lineage", "") + " [loaded via CSV fallback]",
+                source_mode="live",
+                retrieved_at=now,
+                latest_obs_date=latest,
+                staleness_days=_compute_staleness(latest),
             )
     return None
 
@@ -415,6 +542,11 @@ def commodity_data_audit(data: CommodityData, project_root: Path) -> dict[str, A
         "commodity_name": data.commodity_name,
         "source_url": source_url,
         "source_type": data.source_type,
+        "source_mode": data.source_mode,
+        "retrieved_at": data.retrieved_at,
+        "latest_obs_date": data.latest_obs_date,
+        "staleness_days": data.staleness_days,
+        "refresh_warning": data.refresh_warning,
         "data_lineage": data.data_lineage,
         **metadata,
         "row_count": len(data.rows),

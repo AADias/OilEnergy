@@ -554,6 +554,7 @@ def run_pipeline(
     model: str = "ridge",
     horizon_days: int = 1,
     category: str | None = None,
+    offline: bool = False,
 ) -> dict[str, Any]:
     """Run the full OilEnergy forecasting pipeline.
 
@@ -575,6 +576,7 @@ def run_pipeline(
                       Multi-step forecasts use recursive carry-forward; see
                       the "carry_forward_disclosure" field in the output.
         category: Optional category filter label ("oil" or "gas") for auditing.
+        offline: If True, skip network access and use only validated local cache.
 
     Returns:
         dict with dataset_audit, model_audit, correlation_audit, context_audit,
@@ -598,7 +600,7 @@ def run_pipeline(
     cache_dir = project_root / "data" / "raw"
 
     # Load primary commodity
-    commodity_data = load_commodity(commodity, cache_dir=cache_dir)
+    commodity_data = load_commodity(commodity, cache_dir=cache_dir, offline=offline)
     rows = commodity_data.rows
 
     # --- Load context features (weather, demand) with date-range restriction ---
@@ -636,7 +638,7 @@ def run_pipeline(
         all_keys = [k for k in COMMODITIES if k != commodity]
         correlation_threshold = 0.5
         matrix, corr_errors = compute_correlation_matrix(
-            [commodity] + all_keys, cache_dir=cache_dir, threshold=correlation_threshold
+            [commodity] + all_keys, cache_dir=cache_dir, threshold=correlation_threshold, offline=offline
         )
         partners = significant_partners(commodity, matrix)
         correlation_audit = correlation_matrix_to_dict(matrix, [commodity] + all_keys, threshold=correlation_threshold)
@@ -650,7 +652,7 @@ def run_pipeline(
 
         if partners:
             external_feature_sets, ext_errors = load_external_feature_sets(
-                partners, cache_dir=cache_dir
+                partners, cache_dir=cache_dir, offline=offline
             )
             correlation_audit["external_feature_load_errors"] = ext_errors
 
