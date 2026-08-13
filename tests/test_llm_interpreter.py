@@ -36,16 +36,16 @@ class TestTemplateGrammar(unittest.TestCase):
     """Grammar: article before trend direction."""
 
     def test_an_upward_trend(self) -> None:
-        audit = _make_audit(direction_up=True)
+        # When pred > obs → bullish/upward trend
+        audit = _make_audit(direction_up=True, pred_price=89.5, obs_price=88.0)
         summary = _template_summary(audit, "Brent Crude Oil")
-        self.assertIn("an upward trend", summary)
-        self.assertNotIn("a upward trend", summary)
+        self.assertIn("bullish/upward", summary)
 
     def test_a_downward_trend(self) -> None:
-        audit = _make_audit(direction_up=False)
+        # When pred < obs → bearish/downward trend
+        audit = _make_audit(direction_up=False, pred_price=87.0, obs_price=88.0)
         summary = _template_summary(audit, "Brent Crude Oil")
-        self.assertIn("a downward trend", summary)
-        self.assertNotIn("an downward trend", summary)
+        self.assertIn("bearish/downward", summary)
 
 
 class TestTemplateNoTradingSession(unittest.TestCase):
@@ -165,8 +165,117 @@ class TestInterpretResultsFallback(unittest.TestCase):
         audit = _make_audit(direction_up=True)
         result = interpret_results(audit, commodity_name="Brent Crude Oil")
         self.assertEqual(result["source"], "template")
-        self.assertIn("an upward trend", result["summary"])
+        self.assertIn("bullish/upward", result["summary"])
         self.assertNotIn("trading session", result["summary"])
+
+
+class TestTrendClassification(unittest.TestCase):
+    """_template_summary trend label matches forecast sequence direction."""
+
+    def _make_forecast_seq(self, prices: list[float]) -> list[dict]:
+        start = datetime.date(2026, 8, 12)
+        return [
+            {
+                "step": i + 1,
+                "forecast_date": (start + datetime.timedelta(days=i)).isoformat(),
+                "predicted_price": p,
+                "direction": "up",
+            }
+            for i, p in enumerate(prices)
+        ]
+
+    def test_decreasing_sequence_is_bearish(self) -> None:
+        """A declining forecast horizon (Day1 > Day7) must produce bearish/downward."""
+        prices = [93.4854, 93.4850, 93.4554, 93.2962, 93.1917, 93.1576, 93.1666]
+        forecast = self._make_forecast_seq(prices)
+        audit = _make_audit(
+            direction_up=True,  # intentionally wrong flag — trend computed from values
+            pred_price=prices[0],
+            obs_price=93.26,
+            horizon_days=7,
+            forecast=forecast,
+        )
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("bearish/downward", summary)
+        self.assertNotIn("bullish/upward", summary)
+
+    def test_increasing_sequence_is_bullish(self) -> None:
+        prices = [88.0, 88.5, 89.0, 89.5, 90.0, 90.5, 91.0]
+        forecast = self._make_forecast_seq(prices)
+        audit = _make_audit(
+            direction_up=False,  # intentionally wrong flag
+            pred_price=prices[0],
+            obs_price=87.5,
+            horizon_days=7,
+            forecast=forecast,
+        )
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("bullish/upward", summary)
+
+    def test_near_flat_sequence_is_sideways(self) -> None:
+        prices = [88.0, 88.01, 87.99, 88.02, 88.00, 88.01, 87.98]
+        forecast = self._make_forecast_seq(prices)
+        audit = _make_audit(
+            direction_up=True,
+            pred_price=prices[0],
+            obs_price=88.0,
+            horizon_days=7,
+            forecast=forecast,
+        )
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("sideways/neutral", summary)
+
+    def test_single_day_bearish(self) -> None:
+        """Single-day: pred < obs → bearish/downward."""
+        audit = _make_audit(direction_up=False, pred_price=86.0, obs_price=88.0)
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("bearish/downward", summary)
+
+    def test_single_day_bullish(self) -> None:
+        """Single-day: pred > obs → bullish/upward."""
+        audit = _make_audit(direction_up=True, pred_price=90.0, obs_price=88.0)
+        summary = _template_summary(audit, "Brent Crude Oil")
+        self.assertIn("bullish/upward", summary)
+
+
+class TestAliasResolution(unittest.TestCase):
+    """resolve_commodity_key maps intuitive aliases to canonical keys."""
+
+    def setUp(self) -> None:
+        from oilenergy.commodities import resolve_commodity_key
+        self.resolve = resolve_commodity_key
+
+    def test_canonical_brent(self) -> None:
+        self.assertEqual(self.resolve("brent"), "brent")
+
+    def test_alias_oil(self) -> None:
+        self.assertEqual(self.resolve("oil"), "brent")
+
+    def test_alias_crude(self) -> None:
+        self.assertEqual(self.resolve("crude"), "brent")
+
+    def test_alias_gas(self) -> None:
+        self.assertEqual(self.resolve("gas"), "henry_hub")
+
+    def test_alias_natgas(self) -> None:
+        self.assertEqual(self.resolve("natgas"), "henry_hub")
+
+    def test_alias_lng(self) -> None:
+        self.assertEqual(self.resolve("lng"), "qatar_lng")
+
+    def test_alias_qatar(self) -> None:
+        self.assertEqual(self.resolve("qatar"), "qatar_lng")
+
+    def test_backward_compat_qatar_lng(self) -> None:
+        self.assertEqual(self.resolve("qatar_lng"), "qatar_lng")
+
+    def test_backward_compat_wti(self) -> None:
+        self.assertEqual(self.resolve("wti"), "wti")
+
+    def test_unknown_raises_with_suggestion(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self.resolve("unknowncommodityxyz")
+        self.assertIn("--list-commodities", str(ctx.exception))
 
 
 if __name__ == "__main__":

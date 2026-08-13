@@ -564,6 +564,81 @@ def commodity_data_audit(data: CommodityData, project_root: Path) -> dict[str, A
     }
 
 
+# ---------------------------------------------------------------------------
+# Alias resolution
+# ---------------------------------------------------------------------------
+
+#: Maps intuitive user-facing aliases to canonical commodity keys.
+COMMODITY_ALIASES: dict[str, str] = {
+    # oil / brent
+    "oil": "brent",
+    "crude": "brent",
+    "brent_crude": "brent",
+    # wti
+    "wti_crude": "wti",
+    "texas": "wti",
+    # gas / natural gas
+    "gas": "henry_hub",
+    "natural_gas": "henry_hub",
+    "natgas": "henry_hub",
+    "ng": "henry_hub",
+    "henry": "henry_hub",
+    # lng / qatar
+    "lng": "qatar_lng",
+    "qatar": "qatar_lng",
+    "qatar_gas": "qatar_lng",
+    "qatarlng": "qatar_lng",
+    # opec
+    "opec": "opec_basket",
+    "opec_oil": "opec_basket",
+}
+
+# Inverse map: canonical key → sorted list of accepted aliases
+def _build_aliases_by_key() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for alias, key in COMMODITY_ALIASES.items():
+        result.setdefault(key, []).append(alias)
+    for key in result:
+        result[key].sort()
+    return result
+
+
+_ALIASES_BY_KEY: dict[str, list[str]] = _build_aliases_by_key()
+
+
+def resolve_commodity_key(value: str) -> str:
+    """Resolve a user-supplied commodity name or alias to a canonical key.
+
+    Canonical keys (e.g. ``brent``, ``wti``) are returned unchanged.
+    Intuitive aliases (e.g. ``oil``, ``crude``, ``gas``, ``lng``) are mapped
+    to their canonical equivalent.
+
+    Raises
+    ------
+    ValueError
+        When *value* does not match any canonical key or alias.  The error
+        message includes suggestions and instructs the user to run
+        ``--list-commodities``.
+    """
+    normalised = value.strip().lower()
+    if normalised in COMMODITIES:
+        return normalised
+    if normalised in COMMODITY_ALIASES:
+        return COMMODITY_ALIASES[normalised]
+
+    # Build a helpful error message with the closest matches
+    all_known = sorted(set(COMMODITIES.keys()) | set(COMMODITY_ALIASES.keys()))
+    # Simple substring suggestions
+    suggestions = [k for k in all_known if normalised in k or k in normalised]
+    if not suggestions:
+        suggestions = sorted(COMMODITIES.keys())[:5]
+    raise ValueError(
+        f"Unknown commodity or alias '{value}'. "
+        f"Did you mean one of: {', '.join(suggestions)}? "
+        f"Run --list-commodities to see all options."
+    )
+
+
 def list_commodities() -> list[dict[str, str]]:
     """Return a summary list of all configured commodities."""
     return [
@@ -573,6 +648,7 @@ def list_commodities() -> list[dict[str, str]]:
             "type": cfg["type"],
             "region": cfg["region"],
             "description": cfg["description"],
+            "aliases": ", ".join(_ALIASES_BY_KEY.get(key, [])),
         }
         for key, cfg in COMMODITIES.items()
     ]
