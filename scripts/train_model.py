@@ -12,6 +12,13 @@ from oilenergy import run_pipeline
 from oilenergy.commodities import list_commodities
 
 
+def _horizon_days_arg(value: str) -> int:
+    days = int(value)
+    if days < 1 or days > 30:
+        raise argparse.ArgumentTypeError("--horizon-days must be between 1 and 30")
+    return days
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="OilEnergy — Middle East Energy Forecasting Pipeline",
@@ -65,11 +72,11 @@ Examples:
     )
     parser.add_argument(
         "--horizon-days",
-        type=int,
+        type=_horizon_days_arg,
         default=1,
         metavar="N",
         help=(
-            "Number of calendar days to forecast ahead (default: 1). "
+            "Number of calendar days to forecast ahead (1-30, default: 1). "
             "Multi-day forecasts use recursive carry-forward and include "
             "a disclosure note. Dates are calendar days, not guaranteed trading days."
         ),
@@ -133,7 +140,8 @@ if __name__ == "__main__":
         print(f"\n--- {args.horizon_days}-day calendar forecast ---")
         for step in forecast:
             direction = "↑" if step["predicted_direction_up"] else "↓"
-            print(f"  Day {step['step']:2d} ({step['date']})  {step['predicted_price']:8.4f}  {direction}")
+            forecast_date = step.get("forecast_date", step.get("date", "N/A"))
+            print(f"  Day {step['step']:2d} ({forecast_date})  {step['predicted_price']:8.4f}  {direction}")
         print(f"  [{forecast[-1]['carry_forward_disclosure']}]")
 
     # Context data availability
@@ -157,4 +165,3 @@ if __name__ == "__main__":
     if result.get("correlation_audit", {}).get("significant_partners_for_target"):
         partners = result["correlation_audit"]["significant_partners_for_target"]
         print(f"\nSignificant correlated commodities: {', '.join(partners)}")
-

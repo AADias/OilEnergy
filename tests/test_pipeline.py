@@ -326,8 +326,17 @@ class TestRecursiveForecast(unittest.TestCase):
         rows = _make_rows(50)
         weights = self._fit_model(rows)
         forecast = recursive_forecast(weights, rows, horizon_days=5)
-        dates = [f["date"] for f in forecast]
+        dates = [f["forecast_date"] for f in forecast]
         self.assertEqual(dates, sorted(dates))
+
+    def test_forecast_date_keys_are_consistent(self) -> None:
+        rows = _make_rows(50)
+        weights = self._fit_model(rows)
+        forecast = recursive_forecast(weights, rows, horizon_days=3)
+        for step in forecast:
+            self.assertIn("forecast_date", step)
+            self.assertIn("date", step)
+            self.assertEqual(step["forecast_date"], step["date"])
 
     def test_forecast_steps_are_numbered(self) -> None:
         rows = _make_rows(50)
@@ -369,6 +378,11 @@ class TestRunPipelineValidation(unittest.TestCase):
         from oilenergy.pipeline import run_pipeline
         with self.assertRaises(ValueError):
             run_pipeline(Path("."), horizon_days=0)
+
+    def test_horizon_above_30_raises(self) -> None:
+        from oilenergy.pipeline import run_pipeline
+        with self.assertRaises(ValueError):
+            run_pipeline(Path("."), horizon_days=31)
 
     def test_invalid_model_raises(self) -> None:
         from oilenergy.pipeline import run_pipeline

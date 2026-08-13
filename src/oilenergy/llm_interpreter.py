@@ -130,8 +130,8 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     if horizon_days > 1 and len(forecast) >= 2:
         first = forecast[0]
         last = forecast[-1]
-        first_date = first.get("forecast_date", "")
-        last_date = last.get("forecast_date", "")
+        first_date = first.get("forecast_date") or first.get("date") or "N/A"
+        last_date = last.get("forecast_date") or last.get("date") or "N/A"
         first_price = first.get("predicted_price", "N/A")
         last_price = last.get("predicted_price", "N/A")
         lines += [

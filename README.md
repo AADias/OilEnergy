@@ -72,7 +72,7 @@ python scripts\train_model.py [options]
   --commodity KEY         Commodity to forecast (default: brent)
   --features FLAGS        Comma-separated feature groups (default: base)
   --model MODEL           ridge (default) or naive (persistence baseline)
-  --horizon-days N        Calendar days to forecast ahead (default: 1)
+  --horizon-days N        Calendar days to forecast ahead, 1-30 (default: 1)
   --category {oil,gas}    Category label for auditing/display (optional)
   --list-commodities      Print available commodities and exit
 ```
