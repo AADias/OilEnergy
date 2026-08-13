@@ -102,6 +102,31 @@ def _call_hf_api(prompt: str, token: str) -> str | None:
         return None
 
 
+def _classify_trend(
+    start_price: float,
+    end_price: float,
+    sideways_threshold_pct: float = 0.15,
+) -> tuple[str, str, str]:
+    """Classify a price movement as bullish, bearish, or sideways.
+
+    Returns a tuple of (label, article, modifier) where:
+      label    — "bullish/upward", "bearish/downward", or "sideways/neutral"
+      article  — "a" or "an"
+      modifier — "slight", "moderate", or "" for sideways
+    """
+    if start_price == 0:
+        return "sideways/neutral", "a", ""
+    pct_change = (end_price - start_price) / abs(start_price) * 100
+    abs_pct = abs(pct_change)
+    if abs_pct < sideways_threshold_pct:
+        return "sideways/neutral", "a", ""
+    if pct_change > 0:
+        modifier = "slight" if abs_pct < 1.0 else "moderate"
+        return "bullish/upward", "a", modifier
+    modifier = "slight" if abs_pct < 1.0 else "moderate"
+    return "bearish/downward", "a", modifier
+
+
 def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     """Return a professional template-based summary (no API required)."""
     metrics = audit.get("test_metrics", {})
@@ -110,18 +135,37 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
     latest = audit.get("latest_prediction", {})
     pred_price = latest.get("predicted_next_price", "N/A")
     obs_price = latest.get("latest_observation_price", "N/A")
-    direction = "upward" if latest.get("predicted_direction_up", False) else "downward"
-    article = "an" if direction == "upward" else "a"
     commodity = commodity_name or "the commodity"
     horizon_days: int = audit.get("horizon_days", 1) or 1
     forecast: list[dict[str, Any]] = audit.get("forecast", []) or []
 
     directional_pct = f"{float(directional) * 100:.1f}%" if isinstance(directional, (int, float)) else directional
 
+    # Determine trend from forecast sequence (or single next-price vs observation)
+    try:
+        _obs = float(obs_price)
+        _pred = float(pred_price)
+    except (TypeError, ValueError):
+        _obs = 0.0
+        _pred = 0.0
+
+    if horizon_days > 1 and len(forecast) >= 2:
+        try:
+            _first = float(forecast[0].get("predicted_price", _pred))
+            _last = float(forecast[-1].get("predicted_price", _pred))
+        except (TypeError, ValueError):
+            _first, _last = _pred, _pred
+        trend_label, article, modifier = _classify_trend(_first, _last)
+    else:
+        trend_label, article, modifier = _classify_trend(_obs, _pred)
+
+    modifier_phrase = f" {modifier}" if modifier else ""
+
     lines = [
         f"Forecast Summary — {commodity}",
         "",
-        f"Based on current market data, {commodity} is showing {article} {direction} trend. "
+        f"Based on current market data, {commodity} is showing{modifier_phrase} "
+        f"{article} {trend_label} trend. "
         f"The model forecasts the next calendar-day price at {pred_price} "
         f"(current observation: {obs_price}).",
     ]

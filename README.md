@@ -20,6 +20,11 @@ cd OilEnergy
 :: Brent crude oil — live refresh (default; fetches latest data before forecasting)
 python scripts\train_model.py
 
+:: Intuitive shortcuts using --asset
+python scripts\train_model.py --asset oil
+python scripts\train_model.py --asset gas --horizon-days 7
+python scripts\train_model.py --asset lng
+
 :: Offline mode — use validated local cache only, no network access
 python scripts\train_model.py --offline
 
@@ -35,7 +40,7 @@ python scripts\train_model.py --model naive --horizon-days 7
 :: Brent with cross-commodity correlations + seasonality
 python scripts\train_model.py --commodity brent --features all
 
-:: List all available commodities
+:: List all available commodities and their aliases
 python scripts\train_model.py --list-commodities
 ```
 
@@ -76,7 +81,10 @@ See [`config/commodities.yaml`](config/commodities.yaml) to add your own sources
 ```
 python scripts\train_model.py [options]
 
-  --commodity KEY            Commodity to forecast (default: brent)
+  --asset ALIAS              Intuitive shortcut: oil, brent, crude, gas, natgas, lng, qatar …
+                             Equivalent to --commodity but easier to type.
+  --commodity KEY            Commodity key to forecast (default: brent).
+                             Canonical keys: brent, wti, henry_hub, qatar_lng, opec_basket …
   --features FLAGS           Comma-separated feature groups (default: base)
   --model MODEL              ridge (default) or naive (persistence baseline)
   --horizon-days N           Calendar days to forecast ahead, 1-30 (default: 1)
@@ -88,7 +96,7 @@ python scripts\train_model.py [options]
                              but do not fail. Use 0 to require same-day data.
                              Note: upstream publication schedules mean same-day
                              data is not always available from FRED or GitHub.
-  --list-commodities         Print available commodities and exit
+  --list-commodities         Print available commodities with aliases and examples, then exit
 ```
 
 ### Feature Flags

@@ -9,7 +9,7 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from oilenergy import run_pipeline
-from oilenergy.commodities import list_commodities
+from oilenergy.commodities import list_commodities, resolve_commodity_key
 
 # Conservative stale-data default: warn at 7 days, allow user to enforce failure.
 DEFAULT_MAX_STALENESS_DAYS = 7
@@ -31,6 +31,11 @@ Examples:
   # Brent crude oil, base features — live refresh (default)
   python scripts\\train_model.py
 
+  # Intuitive asset shortcuts
+  python scripts\\train_model.py --asset oil
+  python scripts\\train_model.py --asset gas --horizon-days 7
+  python scripts\\train_model.py --asset lng
+
   # Offline mode: use validated local cache only, no network access
   python scripts\\train_model.py --offline
 
@@ -49,14 +54,29 @@ Examples:
   # Ridge model, 5-day forecast, with local weather/demand context (requires data/context/*.csv)
   python scripts\\train_model.py --features seasonality,context --horizon-days 5
 
-  # List all available commodities
+  # List all available commodities and their aliases
   python scripts\\train_model.py --list-commodities
 """,
     )
     parser.add_argument(
         "--commodity",
-        default="brent",
-        help="Commodity to forecast (default: brent). Use --list-commodities to see options.",
+        default=None,
+        help=(
+            "Commodity key to forecast (e.g. brent, wti, qatar_lng). "
+            "Use --list-commodities to see all options. "
+            "Superseded by --asset when both are supplied."
+        ),
+    )
+    parser.add_argument(
+        "--asset",
+        default=None,
+        dest="asset",
+        help=(
+            "Intuitive shortcut for commodity selection. "
+            "Accepts aliases like: oil, brent, crude, gas, natgas, lng, qatar. "
+            "Equivalent to --commodity but easier to remember. "
+            "Use --list-commodities to see all canonical names and aliases."
+        ),
     )
     parser.add_argument(
         "--features",
@@ -122,7 +142,7 @@ Examples:
     parser.add_argument(
         "--list-commodities",
         action="store_true",
-        help="Print all available commodities and exit.",
+        help="Print all available commodities with aliases and example commands, then exit.",
     )
     return parser.parse_args()
 
@@ -133,16 +153,31 @@ if __name__ == "__main__":
     if args.list_commodities:
         print("\nAvailable commodities:\n")
         for c in list_commodities():
+            aliases = c.get("aliases", "")
             print(f"  {c['key']:20s}  [{c['type']:3s}] {c['name']}")
             print(f"  {' ':20s}        Region: {c['region']}")
+            if aliases:
+                print(f"  {' ':20s}        Aliases: {aliases}")
             print(f"  {' ':20s}        {c['description'][:80]}")
+            print(f"  {' ':20s}        Example: python scripts/train_model.py --commodity {c['key']}")
+            if aliases:
+                first_alias = aliases.split(",")[0].strip()
+                print(f"  {' ':20s}                 python scripts/train_model.py --asset {first_alias}")
             print()
         raise SystemExit(0)
+
+    # Resolve commodity: --asset takes priority if supplied, then --commodity, then default brent
+    raw_commodity = args.asset or args.commodity or "brent"
+    try:
+        resolved_commodity = resolve_commodity_key(raw_commodity)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
     project_root = Path(__file__).resolve().parents[1]
     result = run_pipeline(
         project_root,
-        commodity=args.commodity,
+        commodity=resolved_commodity,
         features=args.features,
         model=args.model,
         horizon_days=args.horizon_days,
