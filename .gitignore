@@ -4,3 +4,8 @@ __pycache__/
 *.pyd
 .venv/
 .env
+# Volatile generated artifacts — do not commit
+artifacts/
+audits/
+# Local context data (user-provided, not committed)
+data/context/*.csv
