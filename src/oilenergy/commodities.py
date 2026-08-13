@@ -594,11 +594,16 @@ COMMODITY_ALIASES: dict[str, str] = {
 }
 
 # Inverse map: canonical key → sorted list of accepted aliases
-_ALIASES_BY_KEY: dict[str, list[str]] = {}
-for _alias, _key in COMMODITY_ALIASES.items():
-    _ALIASES_BY_KEY.setdefault(_key, []).append(_alias)
-for _key in _ALIASES_BY_KEY:
-    _ALIASES_BY_KEY[_key].sort()
+def _build_aliases_by_key() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for alias, key in COMMODITY_ALIASES.items():
+        result.setdefault(key, []).append(alias)
+    for key in result:
+        result[key].sort()
+    return result
+
+
+_ALIASES_BY_KEY: dict[str, list[str]] = _build_aliases_by_key()
 
 
 def resolve_commodity_key(value: str) -> str:

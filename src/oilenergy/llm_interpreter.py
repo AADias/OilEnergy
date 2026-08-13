@@ -143,29 +143,34 @@ def _template_summary(audit: dict[str, Any], commodity_name: str) -> str:
 
     # Determine trend from forecast sequence (or single next-price vs observation)
     try:
-        _obs = float(obs_price)
-        _pred = float(pred_price)
+        _obs: float | None = float(obs_price)
     except (TypeError, ValueError):
-        _obs = 0.0
-        _pred = 0.0
+        _obs = None
+    try:
+        _pred: float | None = float(pred_price)
+    except (TypeError, ValueError):
+        _pred = None
 
     if horizon_days > 1 and len(forecast) >= 2:
         try:
-            _first = float(forecast[0].get("predicted_price", _pred))
-            _last = float(forecast[-1].get("predicted_price", _pred))
+            _first = float(forecast[0].get("predicted_price", _pred or 0.0))
+            _last = float(forecast[-1].get("predicted_price", _pred or 0.0))
         except (TypeError, ValueError):
-            _first, _last = _pred, _pred
+            _first = _pred or 0.0
+            _last = _pred or 0.0
         trend_label, article, modifier = _classify_trend(_first, _last)
-    else:
+    elif _obs is not None and _pred is not None:
         trend_label, article, modifier = _classify_trend(_obs, _pred)
+    else:
+        trend_label, article, modifier = "sideways/neutral", "a", ""
 
     modifier_phrase = f" {modifier}" if modifier else ""
 
     lines = [
         f"Forecast Summary — {commodity}",
         "",
-        f"Based on current market data, {commodity} is showing{modifier_phrase} "
-        f"{article} {trend_label} trend. "
+        f"Based on current market data, {commodity} is showing {article}{modifier_phrase} "
+        f"{trend_label} trend. "
         f"The model forecasts the next calendar-day price at {pred_price} "
         f"(current observation: {obs_price}).",
     ]
